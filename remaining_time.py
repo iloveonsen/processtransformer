@@ -1,4 +1,5 @@
 import os
+import json
 import argparse
 import warnings
 warnings.filterwarnings("ignore")
@@ -15,28 +16,33 @@ from processtransformer import constants
 from processtransformer.data import loader
 from processtransformer.models import transformer
 
+# Load default configuration
+config_path = os.path.join(os.path.dirname(__file__), "config", "remaining_time.json")
+with open(config_path, "r") as f:
+    config = json.load(f)
+
 parser = argparse.ArgumentParser(description="Process Transformer - Remaining Time Prediction.")
 
 parser.add_argument("--dataset", required=True, type=str, help="dataset name")
 
-parser.add_argument("--model_dir", default="./models", type=str, help="model directory")
+parser.add_argument("--model_dir", default=config["model_dir"], type=str, help="model directory")
 
-parser.add_argument("--result_dir", default="./results", type=str, help="results directory")
+parser.add_argument("--result_dir", default=config["result_dir"], type=str, help="results directory")
 
 parser.add_argument("--task", type=constants.Task,
     default=constants.Task.REMAINING_TIME,  help="task name")
 
-parser.add_argument("--epochs", default=10, type=int, help="number of total epochs")
+parser.add_argument("--epochs", default=config["epochs"], type=int, help="number of total epochs")
 
-parser.add_argument("--batch_size", default=12, type=int, help="batch size")
+parser.add_argument("--batch_size", default=config["batch_size"], type=int, help="batch size")
 
-parser.add_argument("--learning_rate", default=0.001, type=float,
+parser.add_argument("--learning_rate", default=config["learning_rate"], type=float,
                     help="learning rate")
 
-parser.add_argument("--gpu", default="0", type=str,
+parser.add_argument("--gpu", default=config["gpu"], type=str,
                     help="gpu ids (comma-separated, e.g., '0,1' for 2 GPUs)")
 
-parser.add_argument("--num_workers", default=4, type=int,
+parser.add_argument("--num_workers", default=config["num_workers"], type=int,
                     help="number of data loading workers")
 
 args = parser.parse_args()
