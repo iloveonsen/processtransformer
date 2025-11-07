@@ -75,9 +75,10 @@ class LogsDataProcessor:
     def _process_next_activity(self, df, train_list, test_list):
         # Split DataFrame indices to avoid swapaxes warning
         indices = np.array_split(np.arange(len(df)), self._pool)
-        df_split = [df.iloc[idx] for idx in indices]
+        df_split = [df.iloc[idx].reset_index(drop=True) for idx in indices]
         with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._next_activity_helper_func, df_split))
+            results = list(pool.map(self._next_activity_helper_func, df_split))
+            processed_df = pd.concat(results, ignore_index=True)
         train_df = processed_df[processed_df["case_id"].isin(train_list)]
         test_df = processed_df[processed_df["case_id"].isin(test_list)]
         train_df.to_csv(f"{self._dir_path}/{Task.NEXT_ACTIVITY.value}_train.csv", index = False)
@@ -130,9 +131,10 @@ class LogsDataProcessor:
     def _process_next_time(self, df, train_list, test_list):
         # Split DataFrame indices to avoid swapaxes warning
         indices = np.array_split(np.arange(len(df)), self._pool)
-        df_split = [df.iloc[idx] for idx in indices]
+        df_split = [df.iloc[idx].reset_index(drop=True) for idx in indices]
         with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._next_time_helper_func, df_split))
+            results = list(pool.map(self._next_time_helper_func, df_split))
+            processed_df = pd.concat(results, ignore_index=True)
         train_df = processed_df[processed_df["case_id"].isin(train_list)]
         test_df = processed_df[processed_df["case_id"].isin(test_list)]
         train_df.to_csv(f"{self._dir_path}/{Task.NEXT_TIME.value}_train.csv", index = False)
@@ -185,9 +187,10 @@ class LogsDataProcessor:
     def _process_remaining_time(self, df, train_list, test_list):
         # Split DataFrame indices to avoid swapaxes warning
         indices = np.array_split(np.arange(len(df)), self._pool)
-        df_split = [df.iloc[idx] for idx in indices]
+        df_split = [df.iloc[idx].reset_index(drop=True) for idx in indices]
         with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._remaining_time_helper_func, df_split))
+            results = list(pool.map(self._remaining_time_helper_func, df_split))
+            processed_df = pd.concat(results, ignore_index=True)
         train_remaining_time = processed_df[processed_df["case_id"].isin(train_list)]
         test_remaining_time = processed_df[processed_df["case_id"].isin(test_list)]
         train_remaining_time.to_csv(f"{self._dir_path}/{Task.REMAINING_TIME.value}_train.csv", index = False)
