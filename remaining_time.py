@@ -25,6 +25,9 @@ parser = argparse.ArgumentParser(description="Process Transformer - Remaining Ti
 
 parser.add_argument("--dataset", required=True, type=str, help="dataset name")
 
+parser.add_argument("--data_dir", default=config["data_dir"], type=str,
+                    help="data directory (base path containing raw/ and processed/ subdirectories)")
+
 parser.add_argument("--model_dir", default=config["model_dir"], type=str, help="model directory")
 
 parser.add_argument("--result_dir", default=config["result_dir"], type=str, help="results directory")
@@ -80,7 +83,7 @@ if __name__ == "__main__":
     result_path = f"{result_path}/results"
 
     # Load data
-    data_loader = loader.LogsDataLoader(name=args.dataset)
+    data_loader = loader.LogsDataLoader(name=args.dataset, dir_path=args.data_dir)
 
     (train_df, test_df, x_word_dict, y_word_dict, max_case_length,
         vocab_size, num_output) = data_loader.load_data(args.task)

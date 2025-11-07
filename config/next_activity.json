@@ -1,4 +1,5 @@
 {
+  "data_dir": "./datasets",
   "model_dir": "./models",
   "result_dir": "./results",
   "epochs": 10,
