@@ -20,7 +20,7 @@ setup_args = dict(
 )
 
 install_requires = [
-    "tensorflow>=2.4",
+    "torch>=1.9.0",
     "numpy",
     "scikit-learn",
     "pandas"

@@ -3,11 +3,38 @@ import os
 import json
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from sklearn import utils
-from sklearn import preprocessing 
+from sklearn import preprocessing
 
 from ..constants import Task
+
+def pad_sequences(sequences, maxlen=None, dtype='int32', padding='pre',
+                  truncating='pre', value=0.):
+    """Pads sequences to the same length (NumPy implementation)."""
+    if maxlen is None:
+        maxlen = max(len(s) for s in sequences)
+
+    num_samples = len(sequences)
+    x = np.full((num_samples, maxlen), value, dtype=dtype)
+
+    for idx, s in enumerate(sequences):
+        if not len(s):
+            continue
+        if truncating == 'pre':
+            trunc = s[-maxlen:]
+        elif truncating == 'post':
+            trunc = s[:maxlen]
+        else:
+            raise ValueError(f'Truncating type "{truncating}" not understood')
+
+        if padding == 'post':
+            x[idx, :len(trunc)] = trunc
+        elif padding == 'pre':
+            x[idx, -len(trunc):] = trunc
+        else:
+            raise ValueError(f'Padding type "{padding}" not understood')
+
+    return x
 
 class LogsDataLoader:
     def __init__(self, name, dir_path = "./datasets"):
@@ -38,7 +65,7 @@ class LogsDataLoader:
             token_y.append(y_word_dict[_y])
         # token_y = np.array(token_y, dtype = np.float32)
 
-        token_x = tf.keras.preprocessing.sequence.pad_sequences(
+        token_x = pad_sequences(
             token_x, maxlen=max_case_length)
 
         token_x = np.array(token_x, dtype=np.float32)
@@ -78,7 +105,7 @@ class LogsDataLoader:
             y = y_scaler.transform(
                 y.reshape(-1, 1)).astype(np.float32)
 
-        token_x = tf.keras.preprocessing.sequence.pad_sequences(
+        token_x = pad_sequences(
             token_x, maxlen=max_case_length)
         
         token_x = np.array(token_x, dtype=np.float32)
@@ -118,7 +145,7 @@ class LogsDataLoader:
             y = y_scaler.transform(
                 y.reshape(-1, 1)).astype(np.float32)
 
-        token_x = tf.keras.preprocessing.sequence.pad_sequences(
+        token_x = pad_sequences(
             token_x, maxlen=max_case_length)
         
         token_x = np.array(token_x, dtype=np.float32)
