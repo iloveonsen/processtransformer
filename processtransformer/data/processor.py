@@ -34,8 +34,8 @@ class LogsDataProcessor:
         df["concept:name"] = df["concept:name"].str.lower()
         df["concept:name"] = df["concept:name"].str.replace(" ", "-")
         df["time:timestamp"] = df["time:timestamp"].str.replace("/", "-")
-        df["time:timestamp"]= pd.to_datetime(df["time:timestamp"],  
-            dayfirst=True).map(lambda x: x.strftime("%Y-%m-%d %H:%M:%S"))
+        df["time:timestamp"]= pd.to_datetime(df["time:timestamp"],
+            format="%Y-%m-%d %H:%M:%S").map(lambda x: x.strftime("%Y-%m-%d %H:%M:%S"))
         if sort_temporally:
             df.sort_values(by = ["time:timestamp"], inplace = True)
         return df
@@ -73,7 +73,9 @@ class LogsDataProcessor:
         return processed_df
 
     def _process_next_activity(self, df, train_list, test_list):
-        df_split = np.array_split(df, self._pool)
+        # Split DataFrame indices to avoid swapaxes warning
+        indices = np.array_split(np.arange(len(df)), self._pool)
+        df_split = [df.iloc[idx] for idx in indices]
         with Pool(processes=self._pool) as pool:
             processed_df = pd.concat(pool.imap_unordered(self._next_activity_helper_func, df_split))
         train_df = processed_df[processed_df["case_id"].isin(train_list)]
@@ -126,7 +128,9 @@ class LogsDataProcessor:
         return processed_df_time
 
     def _process_next_time(self, df, train_list, test_list):
-        df_split = np.array_split(df, self._pool)
+        # Split DataFrame indices to avoid swapaxes warning
+        indices = np.array_split(np.arange(len(df)), self._pool)
+        df_split = [df.iloc[idx] for idx in indices]
         with Pool(processes=self._pool) as pool:
             processed_df = pd.concat(pool.imap_unordered(self._next_time_helper_func, df_split))
         train_df = processed_df[processed_df["case_id"].isin(train_list)]
@@ -179,7 +183,9 @@ class LogsDataProcessor:
         return processed_df_remaining_time
 
     def _process_remaining_time(self, df, train_list, test_list):
-        df_split = np.array_split(df, self._pool)
+        # Split DataFrame indices to avoid swapaxes warning
+        indices = np.array_split(np.arange(len(df)), self._pool)
+        df_split = [df.iloc[idx] for idx in indices]
         with Pool(processes=self._pool) as pool:
             processed_df = pd.concat(pool.imap_unordered(self._remaining_time_helper_func, df_split))
         train_remaining_time = processed_df[processed_df["case_id"].isin(train_list)]

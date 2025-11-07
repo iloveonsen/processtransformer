@@ -129,9 +129,9 @@ dmypy.json
 *.pkl
 *.pickle
 
-# Datasets
+# Datasets (exclude data directories but not source code)
 datasets/
-data/
+/data/
 
 # Models
 models/
