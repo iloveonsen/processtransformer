@@ -3,6 +3,8 @@ import os
 import json
 import numpy as np
 import pandas as pd
+import torch
+from torch.utils.data import Dataset
 from sklearn import utils
 from sklearn import preprocessing
 
@@ -178,7 +180,47 @@ class LogsDataLoader:
         vocab_size = len(x_word_dict) 
         total_classes = len(y_word_dict)
 
-        return (train_df, test_df, 
-            x_word_dict, y_word_dict, 
-            max_case_length, vocab_size, 
+        return (train_df, test_df,
+            x_word_dict, y_word_dict,
+            max_case_length, vocab_size,
             total_classes)
+
+
+class NextActivityDataset(Dataset):
+    """PyTorch Dataset for Next Activity Prediction."""
+
+    def __init__(self, token_x, token_y):
+        """
+        Args:
+            token_x: numpy array of tokenized sequences
+            token_y: numpy array of target labels
+        """
+        self.token_x = torch.tensor(token_x, dtype=torch.long)
+        self.token_y = torch.tensor(token_y, dtype=torch.long)
+
+    def __len__(self):
+        return len(self.token_x)
+
+    def __getitem__(self, idx):
+        return self.token_x[idx], self.token_y[idx]
+
+
+class TimeDataset(Dataset):
+    """PyTorch Dataset for Time Prediction tasks (Next Time & Remaining Time)."""
+
+    def __init__(self, token_x, time_x, token_y):
+        """
+        Args:
+            token_x: numpy array of tokenized sequences
+            time_x: numpy array of time features
+            token_y: numpy array of target values
+        """
+        self.token_x = torch.tensor(token_x, dtype=torch.long)
+        self.time_x = torch.tensor(time_x, dtype=torch.float32)
+        self.token_y = torch.tensor(token_y, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.token_x)
+
+    def __getitem__(self, idx):
+        return self.token_x[idx], self.time_x[idx], self.token_y[idx]

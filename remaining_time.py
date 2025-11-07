@@ -7,6 +7,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
+from torch.cuda.amp import autocast, GradScaler
 from sklearn import metrics
 
 from processtransformer import constants
@@ -31,21 +33,39 @@ parser.add_argument("--batch_size", default=12, type=int, help="batch size")
 parser.add_argument("--learning_rate", default=0.001, type=float,
                     help="learning rate")
 
-parser.add_argument("--gpu", default=0, type=int,
-                    help="gpu id")
+parser.add_argument("--gpu", default="0", type=str,
+                    help="gpu ids (comma-separated, e.g., '0,1' for 2 GPUs)")
+
+parser.add_argument("--num_workers", default=4, type=int,
+                    help="number of data loading workers")
 
 args = parser.parse_args()
 
+# LogCosh loss implementation
+class LogCoshLoss(nn.Module):
+    def __init__(self):
+        super(LogCoshLoss, self).__init__()
+
+    def forward(self, y_pred, y_true):
+        loss = torch.log(torch.cosh(y_pred - y_true))
+        return torch.mean(loss)
+
 if __name__ == "__main__":
-    # Set device
-    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    # Set device(s)
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    gpu_ids = [int(i) for i in args.gpu.split(',') if i.strip()]
+    device = torch.device("cuda:0" if torch.cuda.is_available() and len(gpu_ids) > 0 else "cpu")
+    use_multi_gpu = torch.cuda.is_available() and len(gpu_ids) > 1
+
     print(f"Using device: {device}")
+    if use_multi_gpu:
+        print(f"Using {len(gpu_ids)} GPUs: {gpu_ids}")
 
     # Create directories to save the results and models
     model_path = f"{args.model_dir}/{args.dataset}"
     if not os.path.exists(model_path):
         os.makedirs(model_path)
-    model_path = f"{model_path}/remaining_time_ckpt.pt"
+    checkpoint_path = f"{model_path}/remaining_time_ckpt.pt"
 
     result_path = f"{args.result_dir}/{args.dataset}"
     if not os.path.exists(result_path):
@@ -53,15 +73,25 @@ if __name__ == "__main__":
     result_path = f"{result_path}/results"
 
     # Load data
-    data_loader = loader.LogsDataLoader(name = args.dataset)
+    data_loader = loader.LogsDataLoader(name=args.dataset)
 
     (train_df, test_df, x_word_dict, y_word_dict, max_case_length,
         vocab_size, num_output) = data_loader.load_data(args.task)
 
-    # Prepare training examples for next time prediction task
+    # Prepare training examples for remaining time prediction task
     (train_token_x, train_time_x,
         train_token_y, time_scaler, y_scaler) = data_loader.prepare_data_remaining_time(train_df,
         x_word_dict, max_case_length)
+
+    # Create PyTorch Dataset and DataLoader
+    train_dataset = loader.TimeDataset(train_token_x, train_time_x, train_token_y)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True if torch.cuda.is_available() else False
+    )
 
     # Create and train a transformer model
     transformer_model = transformer.get_remaining_time_model(
@@ -70,54 +100,108 @@ if __name__ == "__main__":
 
     transformer_model = transformer_model.to(device)
 
-    # Define optimizer and loss
+    # Multi-GPU support
+    if use_multi_gpu:
+        transformer_model = nn.DataParallel(transformer_model)
+        print(f"Model wrapped with DataParallel")
+
+    # Define optimizer, loss, and scheduler
     optimizer = optim.Adam(transformer_model.parameters(), lr=args.learning_rate)
-    # LogCosh loss implementation
-    class LogCoshLoss(nn.Module):
-        def __init__(self):
-            super(LogCoshLoss, self).__init__()
-
-        def forward(self, y_pred, y_true):
-            loss = torch.log(torch.cosh(y_pred - y_true))
-            return torch.mean(loss)
-
     criterion = LogCoshLoss()
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=3, verbose=True
+    )
+
+    # Mixed Precision Training
+    scaler = GradScaler() if torch.cuda.is_available() else None
 
     # Training loop
-    best_loss = float('inf')
-    num_batches = len(train_token_x) // args.batch_size
+    best_mae = float('inf')
 
     for epoch in range(args.epochs):
         transformer_model.train()
         epoch_loss = 0.0
 
-        for batch_idx in range(num_batches):
-            start_idx = batch_idx * args.batch_size
-            end_idx = start_idx + args.batch_size
-
-            batch_x = torch.tensor(train_token_x[start_idx:end_idx], dtype=torch.long).to(device)
-            batch_time_x = torch.tensor(train_time_x[start_idx:end_idx], dtype=torch.float32).to(device)
-            batch_y = torch.tensor(train_token_y[start_idx:end_idx], dtype=torch.float32).to(device)
+        for batch_idx, (batch_x, batch_time_x, batch_y) in enumerate(train_loader):
+            batch_x = batch_x.to(device)
+            batch_time_x = batch_time_x.to(device)
+            batch_y = batch_y.to(device)
 
             optimizer.zero_grad()
-            outputs = transformer_model(batch_x, batch_time_x, training=True)
-            loss = criterion(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
+
+            if scaler is not None:
+                # Mixed precision training
+                with autocast():
+                    outputs = transformer_model(batch_x, batch_time_x)
+                    loss = criterion(outputs, batch_y)
+
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                # Standard training
+                outputs = transformer_model(batch_x, batch_time_x)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
 
             epoch_loss += loss.item()
 
-        avg_loss = epoch_loss / num_batches
-        print(f"Epoch {epoch+1}/{args.epochs} - Loss: {avg_loss:.4f}")
+        avg_loss = epoch_loss / len(train_loader)
 
-        # Save best model
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            torch.save(transformer_model.state_dict(), model_path)
-            print(f"Model saved with loss: {avg_loss:.4f}")
+        # Validation on training data to compute MAE and RMSE
+        transformer_model.eval()
+        all_predictions = []
+        all_targets = []
+        with torch.no_grad():
+            for batch_x, batch_time_x, batch_y in train_loader:
+                batch_x = batch_x.to(device)
+                batch_time_x = batch_time_x.to(device)
+                outputs = transformer_model(batch_x, batch_time_x)
+                all_predictions.append(outputs.cpu().numpy())
+                all_targets.append(batch_y.numpy())
+
+        y_pred_scaled = np.vstack(all_predictions)
+        y_true_scaled = np.vstack(all_targets)
+
+        # Inverse transform to get actual values
+        y_pred = y_scaler.inverse_transform(y_pred_scaled)
+        y_true = y_scaler.inverse_transform(y_true_scaled)
+
+        train_mae = metrics.mean_absolute_error(y_true, y_pred)
+        train_rmse = np.sqrt(metrics.mean_squared_error(y_true, y_pred))
+
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"Epoch {epoch+1}/{args.epochs} - Loss: {avg_loss:.4f} - MAE: {train_mae:.4f} - RMSE: {train_rmse:.4f} - LR: {current_lr:.6f}")
+
+        # Update learning rate scheduler
+        scheduler.step(train_mae)
+
+        # Save best model with checkpoint
+        if train_mae < best_mae:
+            best_mae = train_mae
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': transformer_model.module.state_dict() if use_multi_gpu else transformer_model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'mae': train_mae,
+                'rmse': train_rmse,
+                'loss': avg_loss,
+            }
+            torch.save(checkpoint, checkpoint_path)
+            print(f"Checkpoint saved with MAE: {train_mae:.4f}, RMSE: {train_rmse:.4f}")
+
+        transformer_model.train()
 
     # Load best model for evaluation
-    transformer_model.load_state_dict(torch.load(model_path))
+    checkpoint = torch.load(checkpoint_path)
+    if use_multi_gpu:
+        transformer_model.module.load_state_dict(checkpoint['model_state_dict'])
+    else:
+        transformer_model.load_state_dict(checkpoint['model_state_dict'])
+    print(f"Best model loaded from epoch {checkpoint['epoch']+1} with MAE: {checkpoint['mae']:.4f}, RMSE: {checkpoint['rmse']:.4f}")
+
     transformer_model.eval()
 
     # Evaluate over all the prefixes (k) and save the results
@@ -130,18 +214,29 @@ if __name__ == "__main__":
                 test_token_x, test_time_x, test_y, _, _ = data_loader.prepare_data_remaining_time(
                     test_data_subset, x_word_dict, max_case_length, time_scaler, y_scaler, False)
 
-                # Predict in batches
+                test_dataset = loader.TimeDataset(test_token_x, test_time_x, test_y)
+                test_loader = DataLoader(
+                    test_dataset,
+                    batch_size=args.batch_size,
+                    shuffle=False,
+                    num_workers=args.num_workers,
+                    pin_memory=True if torch.cuda.is_available() else False
+                )
+
+                # Predict
                 all_predictions = []
-                for batch_start in range(0, len(test_token_x), args.batch_size):
-                    batch_end = min(batch_start + args.batch_size, len(test_token_x))
-                    batch_x = torch.tensor(test_token_x[batch_start:batch_end], dtype=torch.long).to(device)
-                    batch_time_x = torch.tensor(test_time_x[batch_start:batch_end], dtype=torch.float32).to(device)
-                    outputs = transformer_model(batch_x, batch_time_x, training=False)
-                    predictions = outputs.cpu().numpy()
-                    all_predictions.append(predictions)
+                all_targets = []
+                for batch_x, batch_time_x, batch_y in test_loader:
+                    batch_x = batch_x.to(device)
+                    batch_time_x = batch_time_x.to(device)
+                    outputs = transformer_model(batch_x, batch_time_x)
+                    all_predictions.append(outputs.cpu().numpy())
+                    all_targets.append(batch_y.numpy())
 
                 y_pred = np.vstack(all_predictions)
-                _test_y = y_scaler.inverse_transform(test_y)
+                y_true = np.vstack(all_targets)
+
+                _test_y = y_scaler.inverse_transform(y_true)
                 _y_pred = y_scaler.inverse_transform(y_pred)
 
                 k.append(i)
@@ -149,13 +244,13 @@ if __name__ == "__main__":
                 mses.append(metrics.mean_squared_error(_test_y, _y_pred))
                 rmses.append(np.sqrt(metrics.mean_squared_error(_test_y, _y_pred)))
 
-    k.append(i + 1)
+    k.append(len(maes))
     maes.append(np.mean(maes))
     mses.append(np.mean(mses))
     rmses.append(np.mean(rmses))
-    print('Average MAE across all prefixes:', np.mean(maes))
-    print('Average MSE across all prefixes:', np.mean(mses))
-    print('Average RMSE across all prefixes:', np.mean(rmses))
+    print('Average MAE across all prefixes:', np.mean(maes[:-1]))
+    print('Average MSE across all prefixes:', np.mean(mses[:-1]))
+    print('Average RMSE across all prefixes:', np.mean(rmses[:-1]))
     results_df = pd.DataFrame({"k":k, "mean_absolute_error":maes,
         "mean_squared_error":mses,
         "root_mean_squared_error":rmses})
