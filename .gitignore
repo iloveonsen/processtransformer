@@ -160,3 +160,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.bak
+
+# Test scripts
+test_*.py

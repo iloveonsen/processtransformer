@@ -8,22 +8,23 @@ from tqdm.auto import tqdm
 from ..constants import Task
 
 class LogsDataProcessor:
-    def __init__(self, name, filepath, columns, dir_path = "./datasets/processed", pool = 1):
+    def __init__(self, name, filepath, columns, dir_path = "./datasets", pool = 1):
         """Provides support for processing raw logs.
         Args:
             name: str: Dataset name
             filepath: str: Path to raw logs dataset
             columns: list: name of column names
-            dir_path:  str: Path to directory for saving the processed dataset
-            pool: Number of CPUs (processes) to be used for data processing
+            dir_path:  str: Base directory path (defaults to ./datasets)
+            pool: Number of CPUs (processes) to be used for data processing (deprecated, kept for compatibility)
         """
         self._name = name
         self._filepath = filepath
         self._org_columns = columns
-        self._dir_path = dir_path
-        if not os.path.exists(f"{dir_path}/{self._name}/processed"):
-            os.makedirs(f"{dir_path}/{self._name}/processed")
-        self._dir_path = f"{self._dir_path}/{self._name}/processed"
+        self._base_dir = dir_path
+        # Create processed directory structure: ./datasets/processed/{name}/
+        self._dir_path = f"{dir_path}/processed/{self._name}"
+        if not os.path.exists(self._dir_path):
+            os.makedirs(self._dir_path)
         self._pool = pool
 
     def _load_df(self, sort_temporally = False):

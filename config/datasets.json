@@ -1,0 +1,17 @@
+{
+  "helpdesk": {
+    "description": "Helpdesk event log dataset",
+    "columns": ["case_id", "activity", "timestamp"],
+    "raw_file": "helpdesk.csv"
+  },
+  "bpi_2012": {
+    "description": "BPI Challenge 2012 dataset",
+    "columns": ["case_id", "activity", "timestamp"],
+    "raw_file": "bpi_2012.csv"
+  },
+  "bpi_2013": {
+    "description": "BPI Challenge 2013 dataset",
+    "columns": ["case_id", "activity", "timestamp"],
+    "raw_file": "bpi_2013.csv"
+  }
+}

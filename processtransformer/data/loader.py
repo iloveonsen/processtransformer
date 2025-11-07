@@ -40,13 +40,14 @@ def pad_sequences(sequences, maxlen=None, dtype='int32', padding='pre',
 
 class LogsDataLoader:
     def __init__(self, name, dir_path = "./datasets"):
-        """Provides support for reading and 
+        """Provides support for reading and
             pre-processing examples from processed logs.
         Args:
             name: str: name of the dataset as used during processing raw logs
-            dir_path: str: Path to dataset directory
+            dir_path: str: Base directory path (defaults to ./datasets)
         """
-        self._dir_path = f"{dir_path}/{name}/processed"
+        # Path structure: ./datasets/processed/{name}/
+        self._dir_path = f"{dir_path}/processed/{name}"
 
     def prepare_data_next_activity(self, df, 
         x_word_dict, y_word_dict, 

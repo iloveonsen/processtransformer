@@ -20,9 +20,9 @@ parser.add_argument("--dir_path",
     default="./datasets", 
     help="path to store processed data")
 
-parser.add_argument("--raw_log_file", 
-    type=str, 
-    default="./datasets/helpdesk/helpdesk.csv", 
+parser.add_argument("--raw_log_file",
+    type=str,
+    default="./datasets/raw/helpdesk.csv",
     help="path to raw csv log file")
 
 parser.add_argument("--task", 
@@ -37,7 +37,22 @@ parser.add_argument("--sort_temporally",
 
 args = parser.parse_args()
 
-if __name__ == "__main__": 
+if __name__ == "__main__":
+    """
+    Expected directory structure:
+    ./datasets/
+    ├── raw/
+    │   └── {dataset_name}.csv  (e.g., helpdesk.csv)
+    └── processed/
+        └── {dataset_name}/  (created automatically)
+            ├── metadata.json
+            ├── next_activity_train.csv
+            ├── next_activity_test.csv
+            ├── next_time_train.csv
+            ├── next_time_test.csv
+            ├── remaining_time_train.csv
+            └── remaining_time_test.csv
+    """
     # Process raw logs
     start = time.time()
     data_processor = LogsDataProcessor(name=args.dataset, 
