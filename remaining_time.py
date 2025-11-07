@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from sklearn import metrics
 
 from processtransformer import constants
@@ -55,6 +55,7 @@ if __name__ == "__main__":
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     gpu_ids = [int(i) for i in args.gpu.split(',') if i.strip()]
     device = torch.device("cuda:0" if torch.cuda.is_available() and len(gpu_ids) > 0 else "cpu")
+    device_type = "cuda" if torch.cuda.is_available() and len(gpu_ids) > 0 else "cpu"
     use_multi_gpu = torch.cuda.is_available() and len(gpu_ids) > 1
 
     print(f"Using device: {device}")
@@ -113,7 +114,7 @@ if __name__ == "__main__":
     )
 
     # Mixed Precision Training
-    scaler = GradScaler() if torch.cuda.is_available() else None
+    scaler = GradScaler(device_type) if device_type == "cuda" else None
 
     # Training loop
     best_mae = float('inf')
@@ -131,7 +132,7 @@ if __name__ == "__main__":
 
             if scaler is not None:
                 # Mixed precision training
-                with autocast():
+                with autocast(device_type=device_type):
                     outputs = transformer_model(batch_x, batch_time_x)
                     loss = criterion(outputs, batch_y)
 
@@ -153,7 +154,7 @@ if __name__ == "__main__":
         transformer_model.eval()
         all_predictions = []
         all_targets = []
-        with torch.no_grad():
+        with torch.inference_mode():
             for batch_x, batch_time_x, batch_y in train_loader:
                 batch_x = batch_x.to(device)
                 batch_time_x = batch_time_x.to(device)
@@ -207,7 +208,7 @@ if __name__ == "__main__":
     # Evaluate over all the prefixes (k) and save the results
     k, maes, mses, rmses = [], [], [], []
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for i in range(max_case_length):
             test_data_subset = test_df[test_df["k"]==i]
             if len(test_data_subset) > 0:
