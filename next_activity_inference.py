@@ -108,18 +108,25 @@ def aggregate_attention_scores(attn_weights, token_ids):
 def run_inference(args):
     """Main inference function."""
 
+    # Construct paths based on dataset and inference directory
+    dataset_inference_dir = os.path.join(args.inference_dir, args.dataset)
+    raw_dir = os.path.join(dataset_inference_dir, "raw")
+    processed_dir = os.path.join(dataset_inference_dir, "processed")
+    results_dir = os.path.join(dataset_inference_dir, "results")
+
+    # Input CSV path
+    input_csv_path = os.path.join(raw_dir, args.input_csv)
+
     # Validate inputs
-    if not os.path.exists(args.input_csv):
-        raise FileNotFoundError(f"Input CSV not found: {args.input_csv}")
+    if not os.path.exists(input_csv_path):
+        raise FileNotFoundError(
+            f"Input CSV not found: {input_csv_path}\n"
+            f"Please place your CSV file in: {raw_dir}/"
+        )
 
     # Create output directories
-    raw_dir = os.path.join(args.inference_dir, "raw")
-    processed_dir = os.path.join(args.inference_dir, "processed")
-    output_dir = os.path.join(args.output_dir, args.dataset)
-
-    os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(processed_dir, exist_ok=True)
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
 
     # Step 1: Preprocess the single trace
     print("=" * 70)
@@ -131,7 +138,7 @@ def run_inference(args):
     processed_csv_path = os.path.join(processed_dir, f"{input_name}_processed.csv")
 
     processed_df = preprocess_single_trace(
-        args.input_csv,
+        input_csv_path,
         processed_csv_path,
         args.columns
     )
@@ -231,7 +238,7 @@ def run_inference(args):
 
     timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
     output_filename = f"{input_name}_{timestamp}.csv"
-    output_path = os.path.join(output_dir, output_filename)
+    output_path = os.path.join(results_dir, output_filename)
 
     # Create output row
     output_row = {"prediction": predicted_activity}
@@ -258,7 +265,8 @@ if __name__ == "__main__":
                         help="dataset name")
 
     parser.add_argument("--input_csv", required=True, type=str,
-                        help="path to input CSV file (single trace)")
+                        help="input CSV filename (e.g., test_trace.csv). "
+                             "File should be placed in {inference_dir}/{dataset}/raw/")
 
     parser.add_argument("--data_dir", default="./datasets", type=str,
                         help="data directory containing processed data and metadata")
@@ -267,10 +275,7 @@ if __name__ == "__main__":
                         help="model directory containing trained models")
 
     parser.add_argument("--inference_dir", default="./inference", type=str,
-                        help="directory to store preprocessed inference data")
-
-    parser.add_argument("--output_dir", default="./inference/results", type=str,
-                        help="directory to save inference results")
+                        help="inference directory (structure: {inference_dir}/{dataset}/raw|processed|results)")
 
     parser.add_argument("--columns", type=str, nargs='+',
                         default=["case:concept:name", "concept:name", "time:timestamp"],
