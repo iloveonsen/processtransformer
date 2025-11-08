@@ -14,6 +14,7 @@ from sklearn import metrics
 from datetime import datetime
 from dotenv import load_dotenv
 import wandb
+from tqdm.auto import tqdm
 
 # Load environment variables
 load_dotenv()
@@ -118,13 +119,25 @@ if __name__ == "__main__":
         os.makedirs(result_dir)
     result_path = f"{result_dir}/next_time_{timestamp}.csv"
 
+    print("\n" + "="*70)
+    print("LOADING DATA")
+    print("="*70)
+
     # Load data
+    data_path = f"{args.data_dir}/processed/{args.dataset}"
+    print(f"Loading data from: {data_path}")
     data_loader = loader.LogsDataLoader(name=args.dataset, dir_path=args.data_dir)
 
     (train_df, test_df, x_word_dict, y_word_dict, max_case_length,
         vocab_size, num_output) = data_loader.load_data(args.task)
 
+    print(f"  Training samples: {len(train_df)}")
+    print(f"  Test samples: {len(test_df)}")
+    print(f"  Vocabulary size: {vocab_size}")
+    print(f"  Max case length: {max_case_length}")
+
     # Prepare training examples for next time prediction task
+    print("\nPreparing training data...")
     (train_token_x, train_time_x,
         train_token_y, time_scaler, y_scaler) = data_loader.prepare_data_next_time(train_df,
         x_word_dict, max_case_length)
@@ -138,6 +151,12 @@ if __name__ == "__main__":
         num_workers=args.num_workers,
         pin_memory=True if torch.cuda.is_available() else False
     )
+    print(f"Data preparation completed!")
+    print(f"  Total batches per epoch: {len(train_loader)}")
+
+    print("\n" + "="*70)
+    print("CREATING MODEL")
+    print("="*70)
 
     # Create and train a transformer model
     transformer_model = transformer.get_next_time_model(
@@ -145,6 +164,7 @@ if __name__ == "__main__":
         vocab_size=vocab_size)
 
     transformer_model = transformer_model.to(device)
+    print(f"Model created and moved to {device}")
 
     # Multi-GPU support
     if use_multi_gpu:
@@ -155,20 +175,30 @@ if __name__ == "__main__":
     optimizer = optim.Adam(transformer_model.parameters(), lr=args.learning_rate)
     criterion = LogCoshLoss()
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=3, verbose=True
+        optimizer, mode='min', factor=0.5, patience=3
     )
 
     # Mixed Precision Training
-    scaler = GradScaler(device_type) if device_type == "cuda" else None
+    scaler = GradScaler() if device_type == "cuda" else None
+
+    print("\n" + "="*70)
+    print("STARTING TRAINING")
+    print("="*70)
+    print(f"Total epochs: {args.epochs}")
+    print(f"Batch size: {args.batch_size}")
+    print(f"Learning rate: {args.learning_rate}")
+    print()
 
     # Training loop
     best_mae = float('inf')
 
-    for epoch in range(args.epochs):
+    for epoch in tqdm(range(args.epochs), desc="Training Progress", unit="epoch"):
         transformer_model.train()
         epoch_loss = 0.0
 
-        for batch_idx, (batch_x, batch_time_x, batch_y) in enumerate(train_loader):
+        # Training batches with progress bar
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=False, unit="batch")
+        for batch_idx, (batch_x, batch_time_x, batch_y) in enumerate(train_pbar):
             batch_x = batch_x.to(device)
             batch_time_x = batch_time_x.to(device)
             batch_y = batch_y.to(device)
@@ -192,6 +222,9 @@ if __name__ == "__main__":
                 optimizer.step()
 
             epoch_loss += loss.item()
+
+            # Update progress bar with current loss
+            train_pbar.set_postfix({'loss': f'{loss.item():.4f}'})
 
         avg_loss = epoch_loss / len(train_loader)
 
@@ -260,11 +293,15 @@ if __name__ == "__main__":
 
     transformer_model.eval()
 
+    print("\n" + "="*70)
+    print("EVALUATING ON TEST DATA")
+    print("="*70)
+
     # Evaluate over all the prefixes (k) and save the results
     k, maes, mses, rmses = [], [], [], []
 
     with torch.inference_mode():
-        for i in range(max_case_length):
+        for i in tqdm(range(max_case_length), desc="Evaluating prefixes", unit="prefix"):
             test_data_subset = test_df[test_df["k"]==i]
             if len(test_data_subset) > 0:
                 test_token_x, test_time_x, test_y, _, _ = data_loader.prepare_data_next_time(
