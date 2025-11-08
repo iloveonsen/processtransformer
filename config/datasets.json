@@ -1,17 +1,23 @@
 {
-  "helpdesk": {
-    "description": "Helpdesk event log dataset",
-    "columns": ["Case ID", "Activity", "Complete Timestamp"],
-    "raw_file": "helpdesk.csv"
+  "wandb": {
+    "project": "process-transformer",
+    "use_wandb": false
   },
-  "bpi_2012": {
-    "description": "BPI Challenge 2012 dataset",
-    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
-    "raw_file": "bpi_2012.csv"
-  },
-  "bpi_2013": {
-    "description": "BPI Challenge 2013 dataset",
-    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
-    "raw_file": "bpi_2013.csv"
+  "datasets": {
+    "helpdesk": {
+      "description": "Helpdesk event log dataset",
+      "columns": ["Case ID", "Activity", "Complete Timestamp"],
+      "raw_file": "helpdesk.csv"
+    },
+    "bpi_2012": {
+      "description": "BPI Challenge 2012 dataset",
+      "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+      "raw_file": "bpi_2012.csv"
+    },
+    "bpi_2013": {
+      "description": "BPI Challenge 2013 dataset",
+      "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+      "raw_file": "bpi_2013.csv"
+    }
   }
 }

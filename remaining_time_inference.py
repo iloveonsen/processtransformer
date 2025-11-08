@@ -8,6 +8,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datetime import datetime
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
@@ -77,6 +80,46 @@ def preprocess_single_trace(input_csv_path, output_csv_path, columns):
 
     print(f"Processed data saved to: {output_csv_path}")
     return processed_df
+
+
+def visualize_attention_scores(activity_scores, dataset_name, task_name, metric_value, output_path):
+    """
+    Visualize attention scores as a bar chart.
+
+    Args:
+        activity_scores: Dictionary mapping activity names to attention scores
+        dataset_name: Name of the dataset
+        task_name: Name of the task (e.g., "remaining_time")
+        metric_value: Metric value to include in title (e.g., MAE)
+        output_path: Path to save the visualization
+    """
+    # Sort activities by score for better visualization
+    sorted_items = sorted(activity_scores.items(), key=lambda x: x[1], reverse=True)
+    activities = [item[0] for item in sorted_items]
+    scores = [item[1] for item in sorted_items]
+
+    # Create figure with high DPI for quality
+    plt.figure(figsize=(12, 6), dpi=300)
+
+    # Create bar chart with color mapping (darker = higher score)
+    colors = plt.cm.Blues(np.array(scores) / max(scores) if max(scores) > 0 else np.zeros(len(scores)))
+    bars = plt.bar(range(len(activities)), scores, color=colors)
+
+    # Customize plot
+    plt.xlabel('Activity', fontsize=12, fontweight='bold')
+    plt.ylabel('Attention Score', fontsize=12, fontweight='bold')
+    plt.title(f'{dataset_name}_{task_name}_{metric_value}', fontsize=14, fontweight='bold')
+    plt.xticks(range(len(activities)), activities, rotation=45, ha='right')
+    plt.grid(axis='y', alpha=0.3, linestyle='--')
+
+    # Apply tight layout for clean appearance
+    plt.tight_layout()
+
+    # Save with high quality
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"Attention visualization saved to: {output_path}")
 
 
 def aggregate_attention_scores(attn_weights, token_ids):
@@ -271,6 +314,32 @@ def run_inference(args):
     output_df.to_csv(output_path, index=False)
 
     print(f"Results saved to: {output_path}")
+
+    # Step 7: Visualize attention scores
+    print("\n" + "=" * 70)
+    print("Step 7: Visualizing attention scores")
+    print("=" * 70)
+
+    # Get metric value from checkpoint (MAE for remaining_time)
+    metric_value = checkpoint.get("best_mae", "unknown")
+    if isinstance(metric_value, float):
+        metric_value = f"mae_{metric_value:.4f}"
+    else:
+        metric_value = "mae_unknown"
+
+    # Create visualization path (same name as CSV but with .png extension)
+    viz_filename = f"{input_name}_{timestamp}.png"
+    viz_path = os.path.join(results_dir, viz_filename)
+
+    # Generate visualization
+    visualize_attention_scores(
+        activity_scores=activity_scores,
+        dataset_name=args.dataset,
+        task_name="remaining_time",
+        metric_value=metric_value,
+        output_path=viz_path
+    )
+
     print("\n" + "=" * 70)
     print("Inference completed successfully!")
     print("=" * 70)

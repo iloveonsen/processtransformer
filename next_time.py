@@ -27,6 +27,11 @@ config_path = os.path.join(os.path.dirname(__file__), "config", "next_time.json"
 with open(config_path, "r") as f:
     config = json.load(f)
 
+# Load datasets configuration (for wandb settings)
+datasets_config_path = os.path.join(os.path.dirname(__file__), "config", "datasets.json")
+with open(datasets_config_path, "r") as f:
+    datasets_config = json.load(f)
+
 parser = argparse.ArgumentParser(description="Process Transformer - Next Time Prediction.")
 
 parser.add_argument("--dataset", required=True, type=str, help="dataset name")
@@ -54,10 +59,11 @@ parser.add_argument("--gpu", default=config["gpu"], type=str,
 parser.add_argument("--num_workers", default=config["num_workers"], type=int,
                     help="number of data loading workers")
 
-parser.add_argument("--wandb_project", default="process-transformer", type=str,
+parser.add_argument("--wandb_project", default=datasets_config["wandb"]["project"], type=str,
                     help="wandb project name")
 
-parser.add_argument("--use_wandb", action="store_true",
+parser.add_argument("--use_wandb", action="store_true" if datasets_config["wandb"]["use_wandb"] else "store_false",
+                    default=datasets_config["wandb"]["use_wandb"],
                     help="use wandb for logging (requires WANDB_API_KEY in .env)")
 
 args = parser.parse_args()

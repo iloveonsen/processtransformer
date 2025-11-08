@@ -67,14 +67,14 @@ if __name__ == "__main__":
     """
 
     # Validate dataset exists in config
-    if args.dataset not in datasets_config:
+    if args.dataset not in datasets_config["datasets"]:
         raise ValueError(
             f"Dataset '{args.dataset}' not found in config/datasets.json. "
-            f"Available datasets: {list(datasets_config.keys())}"
+            f"Available datasets: {list(datasets_config['datasets'].keys())}"
         )
 
     # Get dataset configuration
-    dataset_info = datasets_config[args.dataset]
+    dataset_info = datasets_config["datasets"][args.dataset]
 
     # Use config values, but allow command-line overrides
     raw_log_file = args.raw_log_file if args.raw_log_file else f"{args.dir_path}/raw/{dataset_info['raw_file']}"
