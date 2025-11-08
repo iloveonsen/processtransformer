@@ -225,7 +225,7 @@ def run_inference(args):
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model checkpoint not found: {model_path}")
 
-    checkpoint = torch.load(model_path, map_location=args.device)
+    checkpoint = torch.load(model_path, map_location=args.device, weights_only=False)
     print(f"Loaded model from: {model_path}")
 
     # Get max case length from processed data

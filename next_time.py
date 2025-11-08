@@ -274,9 +274,10 @@ if __name__ == "__main__":
                 'model_state_dict': transformer_model.module.state_dict() if use_multi_gpu else transformer_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'mae': train_mae,
-                'rmse': train_rmse,
-                'loss': avg_loss,
+                'mae': float(train_mae),
+                'rmse': float(train_rmse),
+                'loss': float(avg_loss),
+                'best_mae': float(best_mae),
             }
             torch.save(checkpoint, checkpoint_path)
             print(f"Checkpoint saved with MAE: {train_mae:.4f}, RMSE: {train_rmse:.4f}")
@@ -284,7 +285,7 @@ if __name__ == "__main__":
         transformer_model.train()
 
     # Load best model for evaluation
-    checkpoint = torch.load(checkpoint_path)
+    checkpoint = torch.load(checkpoint_path, weights_only=False)
     if use_multi_gpu:
         transformer_model.module.load_state_dict(checkpoint['model_state_dict'])
     else:

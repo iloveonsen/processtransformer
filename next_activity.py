@@ -248,14 +248,15 @@ if __name__ == "__main__":
                 'model_state_dict': transformer_model.module.state_dict() if use_multi_gpu else transformer_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'accuracy': accuracy,
-                'loss': avg_loss,
+                'accuracy': float(accuracy),
+                'loss': float(avg_loss),
+                'best_accuracy': float(best_accuracy),
             }
             torch.save(checkpoint, checkpoint_path)
             print(f"Checkpoint saved with accuracy: {accuracy:.4f}")
 
     # Load best model for evaluation
-    checkpoint = torch.load(checkpoint_path)
+    checkpoint = torch.load(checkpoint_path, weights_only=False)
     if use_multi_gpu:
         transformer_model.module.load_state_dict(checkpoint['model_state_dict'])
     else:
