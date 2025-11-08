@@ -161,8 +161,9 @@ Thumbs.db
 *.tmp
 *.bak
 
-# Test scripts
+# Test scripts and test data
 test_*.py
+test_*.csv
 
 # Inference directories
 /inference/
