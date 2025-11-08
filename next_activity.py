@@ -11,10 +11,16 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.amp import autocast, GradScaler
 from sklearn import metrics
+from datetime import datetime
+from dotenv import load_dotenv
+import wandb
 
 from processtransformer import constants
 from processtransformer.data import loader
 from processtransformer.models import transformer
+
+# Load environment variables
+load_dotenv()
 
 # Load default configuration
 config_path = os.path.join(os.path.dirname(__file__), "config", "next_activity.json")
@@ -48,6 +54,12 @@ parser.add_argument("--gpu", default=config["gpu"], type=str,
 parser.add_argument("--num_workers", default=config["num_workers"], type=int,
                     help="number of data loading workers")
 
+parser.add_argument("--wandb_project", default="process-transformer", type=str,
+                    help="wandb project name")
+
+parser.add_argument("--use_wandb", action="store_true",
+                    help="use wandb for logging (requires WANDB_API_KEY in .env)")
+
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -62,16 +74,34 @@ if __name__ == "__main__":
     if use_multi_gpu:
         print(f"Using {len(gpu_ids)} GPUs: {gpu_ids}")
 
+    # Initialize wandb
+    timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+    if args.use_wandb:
+        wandb.init(
+            project=args.wandb_project,
+            name=f"{args.dataset}_next_activity_{timestamp}",
+            config={
+                "dataset": args.dataset,
+                "task": "next_activity",
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "learning_rate": args.learning_rate,
+                "device": device_type,
+                "num_gpus": len(gpu_ids) if use_multi_gpu else 1,
+            }
+        )
+        print(f"Wandb initialized: {wandb.run.name}")
+
     # Create directories to save the results and models
     model_path = f"{args.model_dir}/{args.dataset}"
     if not os.path.exists(model_path):
         os.makedirs(model_path)
     checkpoint_path = f"{model_path}/next_activity_ckpt.pt"
 
-    result_path = f"{args.result_dir}/{args.dataset}"
-    if not os.path.exists(result_path):
-        os.makedirs(result_path)
-    result_path = f"{result_path}/results"
+    result_dir = f"{args.result_dir}/{args.dataset}"
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+    result_path = f"{result_dir}/next_activity_{timestamp}.csv"
 
     # Load data
     data_loader = loader.LogsDataLoader(name=args.dataset, dir_path=args.data_dir)
@@ -157,6 +187,15 @@ if __name__ == "__main__":
         current_lr = optimizer.param_groups[0]['lr']
         print(f"Epoch {epoch+1}/{args.epochs} - Loss: {avg_loss:.4f} - Accuracy: {accuracy:.4f} - LR: {current_lr:.6f}")
 
+        # Log to wandb
+        if args.use_wandb:
+            wandb.log({
+                "epoch": epoch + 1,
+                "train/loss": avg_loss,
+                "train/accuracy": accuracy,
+                "train/learning_rate": current_lr,
+            })
+
         # Update learning rate scheduler
         scheduler.step(accuracy)
 
@@ -230,10 +269,30 @@ if __name__ == "__main__":
     fscores.append(np.mean(fscores))
     precisions.append(np.mean(precisions))
     recalls.append(np.mean(recalls))
-    print('Average accuracy across all prefixes:', np.mean(accuracies[:-1]))
-    print('Average f-score across all prefixes:', np.mean(fscores[:-1]))
-    print('Average precision across all prefixes:', np.mean(precisions[:-1]))
-    print('Average recall across all prefixes:', np.mean(recalls[:-1]))
+    avg_accuracy = np.mean(accuracies[:-1])
+    avg_fscore = np.mean(fscores[:-1])
+    avg_precision = np.mean(precisions[:-1])
+    avg_recall = np.mean(recalls[:-1])
+
+    print(f'Average accuracy across all prefixes: {avg_accuracy:.4f}')
+    print(f'Average f-score across all prefixes: {avg_fscore:.4f}')
+    print(f'Average precision across all prefixes: {avg_precision:.4f}')
+    print(f'Average recall across all prefixes: {avg_recall:.4f}')
+
+    # Log test results to wandb
+    if args.use_wandb:
+        wandb.log({
+            "test/accuracy": avg_accuracy,
+            "test/f1_score": avg_fscore,
+            "test/precision": avg_precision,
+            "test/recall": avg_recall,
+        })
+
     results_df = pd.DataFrame({"k":k, "accuracy":accuracies, "fscore": fscores,
         "precision":precisions, "recall":recalls})
-    results_df.to_csv(result_path+"_next_activity.csv", index=False)
+    results_df.to_csv(result_path, index=False)
+    print(f"Results saved to: {result_path}")
+
+    # Finish wandb run
+    if args.use_wandb:
+        wandb.finish()
