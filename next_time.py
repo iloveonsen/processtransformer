@@ -192,7 +192,7 @@ if __name__ == "__main__":
     # Training loop
     best_mae = float('inf')
 
-    for epoch in tqdm(range(args.epochs), desc="Training Progress", unit="epoch"):
+    for epoch in range(args.epochs):
         transformer_model.train()
         epoch_loss = 0.0
 
@@ -233,7 +233,7 @@ if __name__ == "__main__":
         all_predictions = []
         all_targets = []
         with torch.inference_mode():
-            for batch_x, batch_time_x, batch_y in train_loader:
+            for batch_x, batch_time_x, batch_y in tqdm(train_loader, desc="Validating", leave=False, unit="batch"):
                 batch_x = batch_x.to(device)
                 batch_time_x = batch_time_x.to(device)
                 outputs = transformer_model(batch_x, batch_time_x)

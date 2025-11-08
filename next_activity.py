@@ -184,7 +184,7 @@ if __name__ == "__main__":
     # Training loop
     best_accuracy = 0.0
 
-    for epoch in tqdm(range(args.epochs), desc="Training Progress", unit="epoch"):
+    for epoch in range(args.epochs):
         transformer_model.train()
         epoch_loss = 0.0
         correct = 0

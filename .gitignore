@@ -142,6 +142,9 @@ results/
 outputs/
 logs/
 
+# Weights & Biases
+wandb/
+
 # IDE
 .vscode/
 .idea/
