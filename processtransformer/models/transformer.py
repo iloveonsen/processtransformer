@@ -17,14 +17,18 @@ class TransformerBlock(nn.Module):
         self.dropout_a = nn.Dropout(rate)
         self.dropout_b = nn.Dropout(rate)
 
-    def forward(self, inputs):
+    def forward(self, inputs, return_attention=False):
         # MultiheadAttention expects (batch, seq, embed_dim) with batch_first=True
-        attn_output, _ = self.att(inputs, inputs, inputs, need_weights=False)
+        attn_output, attn_weights = self.att(inputs, inputs, inputs, need_weights=return_attention)
         attn_output = self.dropout_a(attn_output)
         out_a = self.layernorm_a(inputs + attn_output)
         ffn_output = self.ffn(out_a)
         ffn_output = self.dropout_b(ffn_output)
-        return self.layernorm_b(out_a + ffn_output)
+        output = self.layernorm_b(out_a + ffn_output)
+
+        if return_attention:
+            return output, attn_weights
+        return output
 
 class TokenAndPositionEmbedding(nn.Module):
     def __init__(self, maxlen, vocab_size, embed_dim):
@@ -52,14 +56,20 @@ class NextActivityModel(nn.Module):
         self.dropout2 = nn.Dropout(0.1)
         self.output_layer = nn.Linear(64, output_dim)
 
-    def forward(self, inputs):
+    def forward(self, inputs, return_attention=False):
         x = self.embedding(inputs)
-        x = self.transformer_block(x)
+        if return_attention:
+            x, attn_weights = self.transformer_block(x, return_attention=True)
+        else:
+            x = self.transformer_block(x, return_attention=False)
         x = torch.mean(x, dim=1)  # Global Average Pooling
         x = self.dropout1(x)
         x = torch.relu(self.dense1(x))
         x = self.dropout2(x)
         outputs = self.output_layer(x)
+
+        if return_attention:
+            return outputs, attn_weights
         return outputs
 
 class NextTimeModel(nn.Module):
@@ -74,9 +84,12 @@ class NextTimeModel(nn.Module):
         self.dropout2 = nn.Dropout(0.1)
         self.output_layer = nn.Linear(128, output_dim)
 
-    def forward(self, inputs, time_inputs):
+    def forward(self, inputs, time_inputs, return_attention=False):
         x = self.embedding(inputs)
-        x = self.transformer_block(x)
+        if return_attention:
+            x, attn_weights = self.transformer_block(x, return_attention=True)
+        else:
+            x = self.transformer_block(x, return_attention=False)
         x = torch.mean(x, dim=1)  # Global Average Pooling
         x_t = torch.relu(self.time_dense(time_inputs))
         x = torch.cat([x, x_t], dim=1)
@@ -84,6 +97,9 @@ class NextTimeModel(nn.Module):
         x = torch.relu(self.dense1(x))
         x = self.dropout2(x)
         outputs = self.output_layer(x)
+
+        if return_attention:
+            return outputs, attn_weights
         return outputs
 
 class RemainingTimeModel(nn.Module):
@@ -98,9 +114,12 @@ class RemainingTimeModel(nn.Module):
         self.dropout2 = nn.Dropout(0.1)
         self.output_layer = nn.Linear(128, output_dim)
 
-    def forward(self, inputs, time_inputs):
+    def forward(self, inputs, time_inputs, return_attention=False):
         x = self.embedding(inputs)
-        x = self.transformer_block(x)
+        if return_attention:
+            x, attn_weights = self.transformer_block(x, return_attention=True)
+        else:
+            x = self.transformer_block(x, return_attention=False)
         x = torch.mean(x, dim=1)  # Global Average Pooling
         x_t = torch.relu(self.time_dense(time_inputs))
         x = torch.cat([x, x_t], dim=1)
@@ -108,6 +127,9 @@ class RemainingTimeModel(nn.Module):
         x = torch.relu(self.dense1(x))
         x = self.dropout2(x)
         outputs = self.output_layer(x)
+
+        if return_attention:
+            return outputs, attn_weights
         return outputs
 
 def get_next_activity_model(max_case_length, vocab_size, output_dim,

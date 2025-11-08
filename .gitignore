@@ -133,8 +133,8 @@ dmypy.json
 datasets/
 /data/
 
-# Models
-models/
+# Models (exclude model checkpoints but not source code)
+/models/
 checkpoints/
 
 # Results
@@ -163,3 +163,6 @@ Thumbs.db
 
 # Test scripts
 test_*.py
+
+# Inference directories
+/inference/
