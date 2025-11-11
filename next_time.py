@@ -15,6 +15,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import wandb
 from tqdm.auto import tqdm
+import pickle
 
 # Load environment variables
 load_dotenv()
@@ -278,6 +279,8 @@ if __name__ == "__main__":
                 'rmse': float(train_rmse),
                 'loss': float(avg_loss),
                 'best_mae': float(best_mae),
+                'y_scaler': pickle.dumps(y_scaler),
+                'time_scaler': pickle.dumps(time_scaler),
             }
             torch.save(checkpoint, checkpoint_path)
             print(f"Checkpoint saved with MAE: {train_mae:.4f}, RMSE: {train_rmse:.4f}")

@@ -151,7 +151,12 @@ def aggregate_attention_scores(attn_weights, token_ids):
     token_scores = F.softmax(token_scores, dim=0)
 
     # Map token IDs to scores
-    token_ids_np = token_ids[0].cpu().numpy()  # [seq_len]
+    # Handle both [batch, seq_len] and [seq_len] shapes
+    if token_ids.dim() == 2:
+        token_ids_np = token_ids[0].cpu().numpy()  # [seq_len]
+    else:
+        token_ids_np = token_ids.cpu().numpy()  # [seq_len]
+
     token_scores_np = token_scores.cpu().numpy()  # [seq_len]
 
     # Aggregate scores for duplicate tokens
@@ -165,7 +170,8 @@ def aggregate_attention_scores(attn_weights, token_ids):
 
     # Renormalize after aggregation
     total_score = sum(score_dict.values())
-    score_dict = {k: v / total_score for k, v in score_dict.items()}
+    if total_score > 0:
+        score_dict = {k: v / total_score for k, v in score_dict.items()}
 
     return score_dict
 
@@ -281,7 +287,18 @@ def run_inference(args):
         prediction, attn_weights = model(token_x, time_x, return_attention=True)
 
     prediction_value = prediction[0, 0].cpu().item()
-    print(f"Predicted next time: {prediction_value:.4f} days")
+
+    # WARNING: Model output is scaled! Need y_scaler for actual values
+    if "y_scaler" in checkpoint:
+        # Inverse transform to get actual days
+        import pickle
+        y_scaler = pickle.loads(checkpoint["y_scaler"])
+        prediction_value = y_scaler.inverse_transform([[prediction_value]])[0, 0]
+        print(f"Predicted next time: {prediction_value:.4f} days")
+    else:
+        print(f"⚠️  WARNING: Model output is SCALED (not actual days): {prediction_value:.4f}")
+        print(f"⚠️  y_scaler not found in checkpoint. Please retrain the model to save scaler.")
+        print(f"⚠️  This value needs inverse_transform to get actual days.")
 
     # Step 5: Aggregate attention scores
     print("\n" + "=" * 70)
