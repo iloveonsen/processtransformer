@@ -34,9 +34,8 @@ def preprocess_single_trace(input_csv_path, output_csv_path, columns):
     # Rename columns to standard format
     df.columns = ["case:concept:name", "concept:name", "time:timestamp"]
 
-    # Convert timestamp to datetime
-    df["time:timestamp"] = pd.to_datetime(df["time:timestamp"],
-                                          format="%Y-%m-%d %H:%M:%S")
+    # Convert timestamp to datetime (auto-detect format)
+    df["time:timestamp"] = pd.to_datetime(df["time:timestamp"])
 
     # Sort by timestamp
     df = df.sort_values("time:timestamp").reset_index(drop=True)
