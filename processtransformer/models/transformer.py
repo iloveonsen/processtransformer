@@ -19,7 +19,9 @@ class TransformerBlock(nn.Module):
 
     def forward(self, inputs, return_attention=False):
         # MultiheadAttention expects (batch, seq, embed_dim) with batch_first=True
-        attn_output, attn_weights = self.att(inputs, inputs, inputs, need_weights=return_attention)
+        attn_output, attn_weights = self.att(inputs, inputs, inputs,
+                                              need_weights=return_attention,
+                                              average_attn_weights=False)
         attn_output = self.dropout_a(attn_output)
         out_a = self.layernorm_a(inputs + attn_output)
         ffn_output = self.ffn(out_a)

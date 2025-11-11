@@ -118,11 +118,11 @@ def aggregate_attention_scores(attn_weights, token_ids):
     # We take the first (and only) batch
     attn = attn_weights[0]  # [num_heads, seq_len, seq_len]
 
-    # Step 1: Element-wise sum across heads
-    attn_summed = attn.sum(dim=0)  # [seq_len, seq_len]
+    # Step 1: Average across heads
+    attn_averaged = attn.mean(dim=0)  # [seq_len, seq_len]
 
-    # Step 2: Row-wise sum to get per-token scores
-    token_scores = attn_summed.sum(dim=0)  # [seq_len]
+    # Step 2: Sum across attention positions to get per-token scores
+    token_scores = attn_averaged.sum(dim=0)  # [seq_len]
 
     # Step 3: Softmax normalization
     token_scores = F.softmax(token_scores, dim=0)
