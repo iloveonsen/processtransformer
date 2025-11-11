@@ -232,8 +232,10 @@ def run_inference(args):
     checkpoint = torch.load(model_path, map_location=args.device, weights_only=False)
     print(f"Loaded model from: {model_path}")
 
-    # Get max case length from processed data
-    max_case_length = max(len(prefix.split()) for prefix in processed_df["prefix"])
+    # Get max case length from checkpoint (not from test trace!)
+    # The model was trained with a specific max_case_length, we must use the same
+    max_case_length = checkpoint["model_state_dict"]["embedding.pos_emb.weight"].shape[0]
+    print(f"  Max case length (from training): {max_case_length}")
 
     # Create model
     model = transformer.get_next_time_model(
