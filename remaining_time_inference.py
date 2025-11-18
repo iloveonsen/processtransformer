@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datetime import datetime
+from collections import defaultdict
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
@@ -34,8 +35,13 @@ def preprocess_single_trace(input_csv_path, output_csv_path, columns):
     # Rename columns to standard format
     df.columns = ["case:concept:name", "concept:name", "time:timestamp"]
 
+    df["concept:name"] = df["concept:name"].str.lower()
+    df["concept:name"] = df["concept:name"].str.replace(" ", "-")
+    df["time:timestamp"] = df["time:timestamp"].str.replace("/", "-")
+    df["time:timestamp"]= pd.to_datetime(df["time:timestamp"], format="%Y-%m-%d %H:%M:%S")
+
     # Convert timestamp to datetime (auto-detect format)
-    df["time:timestamp"] = pd.to_datetime(df["time:timestamp"])
+    # df["time:timestamp"] = pd.to_datetime(df["time:timestamp"])
 
     # Sort by timestamp
     df = df.sort_values("time:timestamp").reset_index(drop=True)
@@ -92,10 +98,10 @@ def visualize_attention_scores(activity_scores, dataset_name, task_name, metric_
         metric_value: Metric value to include in title (e.g., MAE)
         output_path: Path to save the visualization
     """
-    # Sort activities by score for better visualization
-    sorted_items = sorted(activity_scores.items(), key=lambda x: x[1], reverse=True)
-    activities = [item[0] for item in sorted_items]
-    scores = [item[1] for item in sorted_items]
+    # NOT Sort activities by score for better visualization 
+    items = list(activity_scores.items()) # sorted_items = sorted(activity_scores.items(), key=lambda x: x[1], reverse=True)
+    activities = [item[0] for item in items] # [item[0] for item in sorted_items]
+    scores = [item[1] for item in items] # [item[1] for item in sorted_items]
 
     # Create figure with high DPI for quality
     plt.figure(figsize=(12, 6), dpi=300)
@@ -116,6 +122,74 @@ def visualize_attention_scores(activity_scores, dataset_name, task_name, metric_
 
     # Save with high quality
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"Attention visualization saved to: {output_path}")
+
+
+def visualize_heatmap_attention_scores(activity_scores, dataset_name, task_name, metric_value, output_path):
+    """
+    Visualize attention scores as a tight horizontal heatmap
+    - 1 value -> 1 square cell
+    - show numeric value (3 decimals) on each cell
+    - high values -> darker red
+    """
+    # 0) keep original ordering (no sorting)
+    items = list(activity_scores.items())
+    activities = [k for k, _ in items]
+    scores = np.array([v for _, v in items], dtype=float)
+    n = len(activities)
+
+    # 1) normalize only for coloring (display the original numeric values)
+    #    prefer [0,1] scale; if input is already in [0,1], use as-is; else min-max scale
+    if (scores.min() < 0) or (scores.max() > 1):
+        rng = scores.max() - scores.min()
+        norm_scores = (scores - scores.min()) / (rng if rng > 0 else 1.0)
+    else:
+        norm_scores = np.clip(scores, 0.0, 1.0)
+
+    # 2) figure size tuned to keep squares as much as possible
+    #    width ~ n * cell, height ~ 1 * cell
+    cell_inch = 0.6
+    fig_w = max(6.0, n * cell_inch)
+    fig_h = 1.4 * cell_inch  # a bit taller to fit labels/values
+    plt.figure(figsize=(fig_w, fig_h), dpi=300)
+
+    # 3) draw 1xN heatmap
+    data = norm_scores[np.newaxis, :]  # shape = (1, n)
+    im = plt.imshow(data, cmap="Reds", aspect="equal", vmin=0.0, vmax=1.0)
+
+    ax = plt.gca()
+
+    # 4) annotate each cell with the original numeric value
+    # text color: white on dark, black on light
+    for j, (raw_val, cval) in enumerate(zip(scores, norm_scores)):
+        txt_color = "white" if cval >= 0.6 else "black"
+        ax.text(j, 0, f"{raw_val:.3f}", ha="center", va="center", fontsize=8, color=txt_color)
+
+    # 5) axis cosmetics: tiles grid & labels
+    ax.set_yticks([])  # hide the only row tick
+    ax.set_xticks(range(n))
+    ax.set_xticklabels(activities, rotation=45, ha="right", fontsize=8)
+
+    # add thin white grid between cells to emphasize squares
+    ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
+    ax.set_yticks([-0.5, 0.5], minor=True)
+    ax.grid(which="minor", color="white", linewidth=0.8)
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    # remove spines for a tight look
+    for spine in ["top", "right", "left", "bottom"]:
+        ax.spines[spine].set_visible(False)
+
+    # 6) title (same as before)
+    plt.title(f"{dataset_name}_{task_name}_{metric_value}", fontsize=12, fontweight="bold", pad=8)
+
+    # make layout tight
+    plt.tight_layout()
+
+    # 7) save
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
     print(f"Attention visualization saved to: {output_path}")
@@ -273,7 +347,9 @@ def run_inference(args):
 
     # Tokenize
     token_ids = [x_word_dict.get(token, 0) for token in prefix.split()]
+    print(f"Token Ids: {token_ids}")
     token_x = loader.pad_sequences([token_ids], maxlen=max_case_length)
+    print(f"Pad token ids: {token_x}")
     token_x = torch.tensor(token_x, dtype=torch.long).to(args.device)
     time_x = torch.tensor(time_features, dtype=torch.float32).to(args.device)
 
@@ -305,10 +381,12 @@ def run_inference(args):
     print("=" * 70)
 
     attention_scores = aggregate_attention_scores(attn_weights, token_x)
+    # print(f"attention scores: {attention_scores}")
 
     # Map token IDs back to activities
     id_to_activity = {int(v): k for k, v in x_word_dict.items()}
-    activity_scores = {}
+    activity_scores = {k: 0 for k in x_word_dict.keys()}
+
     for token_id, score in attention_scores.items():
         if token_id in id_to_activity:
             activity = id_to_activity[token_id]
@@ -354,7 +432,7 @@ def run_inference(args):
     viz_path = os.path.join(results_dir, viz_filename)
 
     # Generate visualization
-    visualize_attention_scores(
+    visualize_heatmap_attention_scores(
         activity_scores=activity_scores,
         dataset_name=args.dataset,
         task_name="remaining_time",

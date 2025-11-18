@@ -78,6 +78,7 @@ if __name__ == "__main__":
 
     # Use config values, but allow command-line overrides
     raw_log_file = args.raw_log_file if args.raw_log_file else f"{args.dir_path}/raw/{dataset_info['raw_file']}"
+    print(f"raw file path: {raw_log_file}")
     columns = args.columns if args.columns else dataset_info['columns']
 
     print(f"Processing dataset: {args.dataset}")
@@ -94,7 +95,7 @@ if __name__ == "__main__":
         filepath=raw_log_file,
         columns=columns,
         dir_path=args.dir_path,
-        pool=1
+        pool=8
     )
     data_processor.process_logs(task=args.task, sort_temporally=args.sort_temporally)
     end = time.time()
