@@ -3,21 +3,51 @@ import os
 import json
 import numpy as np
 import pandas as pd
-import tensorflow as tf
+import torch
+from torch.utils.data import Dataset
 from sklearn import utils
-from sklearn import preprocessing 
+from sklearn import preprocessing
 
 from ..constants import Task
 
+def pad_sequences(sequences, maxlen=None, dtype='int32', padding='pre',
+                  truncating='pre', value=0.):
+    """Pads sequences to the same length (NumPy implementation)."""
+    if maxlen is None:
+        maxlen = max(len(s) for s in sequences)
+
+    num_samples = len(sequences)
+    x = np.full((num_samples, maxlen), value, dtype=dtype)
+
+    for idx, s in enumerate(sequences):
+        if not len(s):
+            continue
+        if truncating == 'pre':
+            trunc = s[-maxlen:]
+        elif truncating == 'post':
+            trunc = s[:maxlen]
+        else:
+            raise ValueError(f'Truncating type "{truncating}" not understood')
+
+        if padding == 'post':
+            x[idx, :len(trunc)] = trunc
+        elif padding == 'pre':
+            x[idx, -len(trunc):] = trunc
+        else:
+            raise ValueError(f'Padding type "{padding}" not understood')
+
+    return x
+
 class LogsDataLoader:
     def __init__(self, name, dir_path = "./datasets"):
-        """Provides support for reading and 
+        """Provides support for reading and
             pre-processing examples from processed logs.
         Args:
             name: str: name of the dataset as used during processing raw logs
-            dir_path: str: Path to dataset directory
+            dir_path: str: Base directory path (defaults to ./datasets)
         """
-        self._dir_path = f"{dir_path}/{name}/processed"
+        # Path structure: ./datasets/processed/{name}/
+        self._dir_path = f"{dir_path}/processed/{name}"
 
     def prepare_data_next_activity(self, df, 
         x_word_dict, y_word_dict, 
@@ -38,7 +68,7 @@ class LogsDataLoader:
             token_y.append(y_word_dict[_y])
         # token_y = np.array(token_y, dtype = np.float32)
 
-        token_x = tf.keras.preprocessing.sequence.pad_sequences(
+        token_x = pad_sequences(
             token_x, maxlen=max_case_length)
 
         token_x = np.array(token_x, dtype=np.float32)
@@ -78,7 +108,7 @@ class LogsDataLoader:
             y = y_scaler.transform(
                 y.reshape(-1, 1)).astype(np.float32)
 
-        token_x = tf.keras.preprocessing.sequence.pad_sequences(
+        token_x = pad_sequences(
             token_x, maxlen=max_case_length)
         
         token_x = np.array(token_x, dtype=np.float32)
@@ -118,7 +148,7 @@ class LogsDataLoader:
             y = y_scaler.transform(
                 y.reshape(-1, 1)).astype(np.float32)
 
-        token_x = tf.keras.preprocessing.sequence.pad_sequences(
+        token_x = pad_sequences(
             token_x, maxlen=max_case_length)
         
         token_x = np.array(token_x, dtype=np.float32)
@@ -151,7 +181,47 @@ class LogsDataLoader:
         vocab_size = len(x_word_dict) 
         total_classes = len(y_word_dict)
 
-        return (train_df, test_df, 
-            x_word_dict, y_word_dict, 
-            max_case_length, vocab_size, 
+        return (train_df, test_df,
+            x_word_dict, y_word_dict,
+            max_case_length, vocab_size,
             total_classes)
+
+
+class NextActivityDataset(Dataset):
+    """PyTorch Dataset for Next Activity Prediction."""
+
+    def __init__(self, token_x, token_y):
+        """
+        Args:
+            token_x: numpy array of tokenized sequences
+            token_y: numpy array of target labels
+        """
+        self.token_x = torch.tensor(token_x, dtype=torch.long)
+        self.token_y = torch.tensor(token_y, dtype=torch.long)
+
+    def __len__(self):
+        return len(self.token_x)
+
+    def __getitem__(self, idx):
+        return self.token_x[idx], self.token_y[idx]
+
+
+class TimeDataset(Dataset):
+    """PyTorch Dataset for Time Prediction tasks (Next Time & Remaining Time)."""
+
+    def __init__(self, token_x, time_x, token_y):
+        """
+        Args:
+            token_x: numpy array of tokenized sequences
+            time_x: numpy array of time features
+            token_y: numpy array of target values
+        """
+        self.token_x = torch.tensor(token_x, dtype=torch.long)
+        self.time_x = torch.tensor(time_x, dtype=torch.float32)
+        self.token_y = torch.tensor(token_y, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.token_x)
+
+    def __getitem__(self, idx):
+        return self.token_x[idx], self.time_x[idx], self.token_y[idx]

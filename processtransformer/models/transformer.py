@@ -1,88 +1,150 @@
 
-import tensorflow as tf
-from tensorflow.keras import layers
+import torch
+import torch.nn as nn
+import math
 
-class TransformerBlock(layers.Layer):
+class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1):
         super(TransformerBlock, self).__init__()
-        self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
-        self.ffn = tf.keras.Sequential(
-            [layers.Dense(ff_dim, activation="relu"), layers.Dense(embed_dim),]
+        self.att = nn.MultiheadAttention(embed_dim, num_heads, dropout=rate, batch_first=True)
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, ff_dim),
+            nn.ReLU(),
+            nn.Linear(ff_dim, embed_dim)
         )
-        self.layernorm_a = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm_b = layers.LayerNormalization(epsilon=1e-6)
-        self.dropout_a = layers.Dropout(rate)
-        self.dropout_b = layers.Dropout(rate)
+        self.layernorm_a = nn.LayerNorm(embed_dim, eps=1e-6)
+        self.layernorm_b = nn.LayerNorm(embed_dim, eps=1e-6)
+        self.dropout_a = nn.Dropout(rate)
+        self.dropout_b = nn.Dropout(rate)
 
-    def call(self, inputs, training):
-        attn_output = self.att(inputs, inputs)
-        attn_output = self.dropout_a(attn_output, training=training)
+    def forward(self, inputs, return_attention=False):
+        # MultiheadAttention expects (batch, seq, embed_dim) with batch_first=True
+        attn_output, attn_weights = self.att(inputs, inputs, inputs,
+                                              need_weights=return_attention,
+                                              average_attn_weights=False)
+        attn_output = self.dropout_a(attn_output)
         out_a = self.layernorm_a(inputs + attn_output)
         ffn_output = self.ffn(out_a)
-        ffn_output = self.dropout_b(ffn_output, training=training)
-        return self.layernorm_b(out_a + ffn_output)
+        ffn_output = self.dropout_b(ffn_output)
+        output = self.layernorm_b(out_a + ffn_output)
 
-class TokenAndPositionEmbedding(layers.Layer):
+        if return_attention:
+            return output, attn_weights
+        return output
+
+class TokenAndPositionEmbedding(nn.Module):
     def __init__(self, maxlen, vocab_size, embed_dim):
         super(TokenAndPositionEmbedding, self).__init__()
-        self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
-        self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
+        self.token_emb = nn.Embedding(vocab_size, embed_dim)
+        self.pos_emb = nn.Embedding(maxlen, embed_dim)
+        self.maxlen = maxlen
 
-    def call(self, x):
-        maxlen = tf.shape(x)[-1]
-        positions = tf.range(start=0, limit=maxlen, delta=1)
-        positions = self.pos_emb(positions)
-        x = self.token_emb(x)
-        return x + positions
+    def forward(self, x):
+        # x shape: (batch_size, seq_len)
+        seq_len = x.size(1)
+        positions = torch.arange(0, seq_len, dtype=torch.long, device=x.device)
+        positions = self.pos_emb(positions)  # (seq_len, embed_dim)
+        x = self.token_emb(x)  # (batch_size, seq_len, embed_dim)
+        return x + positions.unsqueeze(0)  # broadcast positions across batch
 
-def get_next_activity_model(max_case_length, vocab_size, output_dim, 
-    embed_dim = 36, num_heads = 4, ff_dim = 64):
-    inputs = layers.Input(shape=(max_case_length,))
-    x = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)(inputs)
-    x = TransformerBlock(embed_dim, num_heads, ff_dim)(x)
-    x = layers.GlobalAveragePooling1D()(x)
-    x = layers.Dropout(0.1)(x)
-    x = layers.Dense(64, activation="relu")(x)
-    x = layers.Dropout(0.1)(x)
-    outputs = layers.Dense(output_dim, activation="linear")(x)
-    transformer = tf.keras.Model(inputs=inputs, outputs=outputs,
-        name = "next_activity_transformer")
-    return transformer
+class NextActivityModel(nn.Module):
+    def __init__(self, max_case_length, vocab_size, output_dim,
+                 embed_dim=36, num_heads=4, ff_dim=64):
+        super(NextActivityModel, self).__init__()
+        self.embedding = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)
+        self.transformer_block = TransformerBlock(embed_dim, num_heads, ff_dim)
+        self.dropout1 = nn.Dropout(0.1)
+        self.dense1 = nn.Linear(embed_dim, 64)
+        self.dropout2 = nn.Dropout(0.1)
+        self.output_layer = nn.Linear(64, output_dim)
 
-def get_next_time_model(max_case_length, vocab_size, output_dim = 1, 
-    embed_dim = 36, num_heads = 4, ff_dim = 64):
+    def forward(self, inputs, return_attention=False):
+        x = self.embedding(inputs)
+        if return_attention:
+            x, attn_weights = self.transformer_block(x, return_attention=True)
+        else:
+            x = self.transformer_block(x, return_attention=False)
+        x = torch.mean(x, dim=1)  # Global Average Pooling
+        x = self.dropout1(x)
+        x = torch.relu(self.dense1(x))
+        x = self.dropout2(x)
+        outputs = self.output_layer(x)
 
-    inputs = layers.Input(shape=(max_case_length,))
-    # Three time-based features
-    time_inputs = layers.Input(shape=(3,)) 
-    x = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)(inputs)
-    x = TransformerBlock(embed_dim, num_heads, ff_dim)(x)
-    x = layers.GlobalAveragePooling1D()(x)
-    x_t = layers.Dense(32, activation="relu")(time_inputs)
-    x = layers.Concatenate()([x, x_t])
-    x = layers.Dropout(0.1)(x)
-    x = layers.Dense(128, activation="relu")(x)
-    x = layers.Dropout(0.1)(x)
-    outputs = layers.Dense(output_dim, activation="linear")(x)
-    transformer = tf.keras.Model(inputs=[inputs, time_inputs], outputs=outputs,
-        name = "next_time_transformer")
-    return transformer
+        if return_attention:
+            return outputs, attn_weights
+        return outputs
 
-def get_remaining_time_model(max_case_length, vocab_size, output_dim = 1, 
-    embed_dim = 36, num_heads = 4, ff_dim = 64):
+class NextTimeModel(nn.Module):
+    def __init__(self, max_case_length, vocab_size, output_dim=1,
+                 embed_dim=36, num_heads=4, ff_dim=64):
+        super(NextTimeModel, self).__init__()
+        self.embedding = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)
+        self.transformer_block = TransformerBlock(embed_dim, num_heads, ff_dim)
+        self.time_dense = nn.Linear(3, 32)
+        self.dropout1 = nn.Dropout(0.1)
+        self.dense1 = nn.Linear(embed_dim + 32, 128)
+        self.dropout2 = nn.Dropout(0.1)
+        self.output_layer = nn.Linear(128, output_dim)
 
-    inputs = layers.Input(shape=(max_case_length,))
-    # Three time-based features
-    time_inputs = layers.Input(shape=(3,)) 
-    x = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)(inputs)
-    x = TransformerBlock(embed_dim, num_heads, ff_dim)(x)
-    x = layers.GlobalAveragePooling1D()(x)
-    x_t = layers.Dense(32, activation="relu")(time_inputs)
-    x = layers.Concatenate()([x, x_t])
-    x = layers.Dropout(0.1)(x)
-    x = layers.Dense(128, activation="relu")(x)
-    x = layers.Dropout(0.1)(x)
-    outputs = layers.Dense(output_dim, activation="linear")(x)
-    transformer = tf.keras.Model(inputs=[inputs, time_inputs], outputs=outputs,
-        name = "remaining_time_transformer")
-    return transformer
+    def forward(self, inputs, time_inputs, return_attention=False):
+        x = self.embedding(inputs)
+        if return_attention:
+            x, attn_weights = self.transformer_block(x, return_attention=True)
+        else:
+            x = self.transformer_block(x, return_attention=False)
+        x = torch.mean(x, dim=1)  # Global Average Pooling
+        x_t = torch.relu(self.time_dense(time_inputs))
+        x = torch.cat([x, x_t], dim=1)
+        x = self.dropout1(x)
+        x = torch.relu(self.dense1(x))
+        x = self.dropout2(x)
+        outputs = self.output_layer(x)
+
+        if return_attention:
+            return outputs, attn_weights
+        return outputs
+
+class RemainingTimeModel(nn.Module):
+    def __init__(self, max_case_length, vocab_size, output_dim=1,
+                 embed_dim=36, num_heads=4, ff_dim=64):
+        super(RemainingTimeModel, self).__init__()
+        self.embedding = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)
+        self.transformer_block = TransformerBlock(embed_dim, num_heads, ff_dim)
+        self.time_dense = nn.Linear(3, 32)
+        self.dropout1 = nn.Dropout(0.1)
+        self.dense1 = nn.Linear(embed_dim + 32, 128)
+        self.dropout2 = nn.Dropout(0.1)
+        self.output_layer = nn.Linear(128, output_dim)
+
+    def forward(self, inputs, time_inputs, return_attention=False):
+        x = self.embedding(inputs)
+        if return_attention:
+            x, attn_weights = self.transformer_block(x, return_attention=True)
+        else:
+            x = self.transformer_block(x, return_attention=False)
+        x = torch.mean(x, dim=1)  # Global Average Pooling
+        x_t = torch.relu(self.time_dense(time_inputs))
+        x = torch.cat([x, x_t], dim=1)
+        x = self.dropout1(x)
+        x = torch.relu(self.dense1(x))
+        x = self.dropout2(x)
+        outputs = self.output_layer(x)
+
+        if return_attention:
+            return outputs, attn_weights
+        return outputs
+
+def get_next_activity_model(max_case_length, vocab_size, output_dim,
+                            embed_dim=36, num_heads=4, ff_dim=64):
+    return NextActivityModel(max_case_length, vocab_size, output_dim,
+                            embed_dim, num_heads, ff_dim)
+
+def get_next_time_model(max_case_length, vocab_size, output_dim=1,
+                       embed_dim=36, num_heads=4, ff_dim=64):
+    return NextTimeModel(max_case_length, vocab_size, output_dim,
+                        embed_dim, num_heads, ff_dim)
+
+def get_remaining_time_model(max_case_length, vocab_size, output_dim=1,
+                             embed_dim=36, num_heads=4, ff_dim=64):
+    return RemainingTimeModel(max_case_length, vocab_size, output_dim,
+                             embed_dim, num_heads, ff_dim)

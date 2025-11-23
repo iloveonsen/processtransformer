@@ -1,0 +1,63 @@
+{
+  "wandb": {
+    "project": "process-transformer",
+    "use_wandb": true
+  },
+  "datasets": {
+    "helpdesk": {
+      "description": "Helpdesk event log dataset",
+      "columns": ["Case ID", "Activity", "Complete Timestamp"],
+      "raw_file": "helpdesk.csv"
+    },
+    "bpi_2012": {
+      "description": "BPI Challenge 2012 dataset",
+      "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+      "raw_file": "bpi_2012.csv"
+    },
+    "bpi_2013": {
+      "description": "BPI Challenge 2013 dataset",
+      "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+      "raw_file": "bpi_2013.csv"
+    },
+    "BPIC17_Application": {
+	    "description": "BPI Challenge 2017 Application object type dataset",
+	    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+	    "raw_file": "BPIC17_Application.csv"
+    },
+    "BPIC17_Case_R": {
+	    "description": "BPI Challenge 2017 Case R object type dataset",
+	    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+	    "raw_file": "BPIC17_Case_R.csv"
+    },
+    "BPIC17_Offer": {
+	    "description": "BPI Challenge 2017 Offer object type dataset",
+	    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+	    "raw_file": "BPIC17_Offer.csv"
+    },
+    "BPIC17_Workflow": {
+	    "description": "BPI Challenge 2017 Workflow object type dataset",
+	    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+	    "raw_file": "BPIC17_Workflow.csv"
+    },
+    "BPI2017-Application": {
+	    "description": "BPI Challenge 2017 Application object type dataset",
+	    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+	    "raw_file": "BPI2017-Application.csv"
+    },
+    "BPI2017-Offer": {
+	    "description": "BPI Challenge 2017 Application object type dataset",
+	    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+	    "raw_file": "BPI2017-Offer.csv"
+    },
+    "BPI2017-Top10-Application": {
+	    "description": "BPI Challenge 2017 Application object type dataset",
+	    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+	    "raw_file": "BPI2017-Top10-Application.csv"
+    },
+    "BPI2017-Top10-Offer": {
+	    "description": "BPI Challenge 2017 Application object type dataset",
+	    "columns": ["case:concept:name", "concept:name", "time:timestamp"],
+	    "raw_file": "BPI2017-Top10-Offer.csv"
+    }
+  }
+}

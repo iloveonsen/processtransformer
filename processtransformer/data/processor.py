@@ -3,27 +3,28 @@ import json
 import pandas as pd
 import numpy as np
 import datetime
-from multiprocessing import  Pool
+from tqdm.auto import tqdm
 
 from ..constants import Task
 
 class LogsDataProcessor:
-    def __init__(self, name, filepath, columns, dir_path = "./datasets/processed", pool = 1):
+    def __init__(self, name, filepath, columns, dir_path = "./datasets", pool = 1):
         """Provides support for processing raw logs.
         Args:
             name: str: Dataset name
             filepath: str: Path to raw logs dataset
             columns: list: name of column names
-            dir_path:  str: Path to directory for saving the processed dataset
-            pool: Number of CPUs (processes) to be used for data processing
+            dir_path:  str: Base directory path (defaults to ./datasets)
+            pool: Number of CPUs (processes) to be used for data processing (deprecated, kept for compatibility)
         """
         self._name = name
         self._filepath = filepath
         self._org_columns = columns
-        self._dir_path = dir_path
-        if not os.path.exists(f"{dir_path}/{self._name}/processed"):
-            os.makedirs(f"{dir_path}/{self._name}/processed")
-        self._dir_path = f"{self._dir_path}/{self._name}/processed"
+        self._base_dir = dir_path
+        # Create processed directory structure: ./datasets/processed/{name}/
+        self._dir_path = f"{dir_path}/processed/{self._name}"
+        if not os.path.exists(self._dir_path):
+            os.makedirs(self._dir_path)
         self._pool = pool
 
     def _load_df(self, sort_temporally = False):
@@ -34,8 +35,8 @@ class LogsDataProcessor:
         df["concept:name"] = df["concept:name"].str.lower()
         df["concept:name"] = df["concept:name"].str.replace(" ", "-")
         df["time:timestamp"] = df["time:timestamp"].str.replace("/", "-")
-        df["time:timestamp"]= pd.to_datetime(df["time:timestamp"],  
-            dayfirst=True).map(lambda x: x.strftime("%Y-%m-%d %H:%M:%S"))
+        df["time:timestamp"]= pd.to_datetime(df["time:timestamp"],
+            format="%Y-%m-%d %H:%M:%S").map(lambda x: x.strftime("%Y-%m-%d %H:%M:%S"))
         if sort_temporally:
             df.sort_values(by = ["time:timestamp"], inplace = True)
         return df
@@ -56,136 +57,150 @@ class LogsDataProcessor:
 
     def _next_activity_helper_func(self, df):
         case_id, case_name = "case:concept:name", "concept:name"
-        processed_df = pd.DataFrame(columns = ["case_id", 
-        "prefix", "k", "next_act"])
-        idx = 0
-        unique_cases = df[case_id].unique()
-        for _, case in enumerate(unique_cases):
-            act = df[df[case_id] == case][case_name].to_list()
+        processed_data = []
+
+        # Use groupby to avoid repeated filtering - much faster!
+        for case, group in tqdm(df.groupby(case_id), desc="Processing next activity", leave=False):
+            act = group[case_name].to_list()
             for i in range(len(act) - 1):
-                prefix = np.where(i == 0, act[0], " ".join(act[:i+1]))        
+                prefix = act[0] if i == 0 else " ".join(act[:i+1])
                 next_act = act[i+1]
-                processed_df.at[idx, "case_id"]  =  case
-                processed_df.at[idx, "prefix"]  =  prefix
-                processed_df.at[idx, "k"] =  i
-                processed_df.at[idx, "next_act"] = next_act
-                idx = idx + 1
-        return processed_df
+                processed_data.append({
+                    "case_id": case,
+                    "prefix": prefix,
+                    "k": i,
+                    "next_act": next_act
+                })
+
+        return pd.DataFrame(processed_data)
 
     def _process_next_activity(self, df, train_list, test_list):
-        df_split = np.array_split(df, self._pool)
-        with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._next_activity_helper_func, df_split))
+        print("Processing next activity data...")
+        processed_df = self._next_activity_helper_func(df)
         train_df = processed_df[processed_df["case_id"].isin(train_list)]
         test_df = processed_df[processed_df["case_id"].isin(test_list)]
         train_df.to_csv(f"{self._dir_path}/{Task.NEXT_ACTIVITY.value}_train.csv", index = False)
         test_df.to_csv(f"{self._dir_path}/{Task.NEXT_ACTIVITY.value}_test.csv", index = False)
+        print(f"Saved {len(train_df)} training and {len(test_df)} test samples.")
 
     def _next_time_helper_func(self, df):
         case_id = "case:concept:name"
         event_name = "concept:name"
         event_time = "time:timestamp"
-        processed_df = pd.DataFrame(columns = ["case_id", "prefix", "k", "time_passed", 
-            "recent_time", "latest_time", "next_time", "remaining_time_days"])
-        idx = 0
-        unique_cases = df[case_id].unique()
-        for _, case in enumerate(unique_cases):
-            act = df[df[case_id] == case][event_name].to_list()
-            time = df[df[case_id] == case][event_time].str[:19].to_list()
+        processed_data = []
+
+        # Use groupby to avoid repeated filtering
+        for case, group in tqdm(df.groupby(case_id), desc="Processing next time", leave=False):
+            act = group[event_name].to_list()
+            time_str = group[event_time].str[:19].to_list()
+
+            # Pre-parse all timestamps once - huge performance gain!
+            time_dt = [datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S") for t in time_str]
+
             time_passed = 0
-            latest_diff = datetime.timedelta()
-            recent_diff = datetime.timedelta()
-            next_time =  datetime.timedelta()
+
             for i in range(0, len(act)):
-                prefix = np.where(i == 0, act[0], " ".join(act[:i+1]))
+                prefix = act[0] if i == 0 else " ".join(act[:i+1])
+
                 if i > 0:
-                    latest_diff = datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S") - \
-                                        datetime.datetime.strptime(time[i-1], "%Y-%m-%d %H:%M:%S")
+                    latest_diff = time_dt[i] - time_dt[i-1]
+                    latest_time = latest_diff.days
+                else:
+                    latest_time = 0
+
                 if i > 1:
-                    recent_diff = datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S")- \
-                                    datetime.datetime.strptime(time[i-2], "%Y-%m-%d %H:%M:%S")
-                latest_time = np.where(i == 0, 0, latest_diff.days)
-                recent_time = np.where(i <=1, 0, recent_diff.days)
+                    recent_diff = time_dt[i] - time_dt[i-2]
+                    recent_time = recent_diff.days
+                else:
+                    recent_time = 0
+
                 time_passed = time_passed + latest_time
-                if i+1 < len(time):
-                    next_time = datetime.datetime.strptime(time[i+1], "%Y-%m-%d %H:%M:%S") - \
-                                datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S")
+
+                if i+1 < len(time_dt):
+                    next_time = time_dt[i+1] - time_dt[i]
                     next_time_days = str(int(next_time.days))
                 else:
                     next_time_days = str(1)
-                processed_df.at[idx, "case_id"]  = case
-                processed_df.at[idx, "prefix"]  =  prefix
-                processed_df.at[idx, "k"] = i
-                processed_df.at[idx, "time_passed"] = time_passed
-                processed_df.at[idx, "recent_time"] = recent_time
-                processed_df.at[idx, "latest_time"] =  latest_time
-                processed_df.at[idx, "next_time"] = next_time_days
-                idx = idx + 1
-        processed_df_time = processed_df[["case_id", "prefix", "k", "time_passed", 
-            "recent_time", "latest_time","next_time"]]
-        return processed_df_time
+
+                processed_data.append({
+                    "case_id": case,
+                    "prefix": prefix,
+                    "k": i,
+                    "time_passed": time_passed,
+                    "recent_time": recent_time,
+                    "latest_time": latest_time,
+                    "next_time": next_time_days
+                })
+
+        return pd.DataFrame(processed_data)
 
     def _process_next_time(self, df, train_list, test_list):
-        df_split = np.array_split(df, self._pool)
-        with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._next_time_helper_func, df_split))
+        print("Processing next time data...")
+        processed_df = self._next_time_helper_func(df)
         train_df = processed_df[processed_df["case_id"].isin(train_list)]
         test_df = processed_df[processed_df["case_id"].isin(test_list)]
         train_df.to_csv(f"{self._dir_path}/{Task.NEXT_TIME.value}_train.csv", index = False)
         test_df.to_csv(f"{self._dir_path}/{Task.NEXT_TIME.value}_test.csv", index = False)
+        print(f"Saved {len(train_df)} training and {len(test_df)} test samples.")
 
     def _remaining_time_helper_func(self, df):
         case_id = "case:concept:name"
         event_name = "concept:name"
         event_time = "time:timestamp"
-        processed_df = pd.DataFrame(columns = ["case_id", "prefix", "k", "time_passed", 
-                "recent_time", "latest_time", "next_act", "remaining_time_days"])
-        idx = 0
-        unique_cases = df[case_id].unique()
-        for _, case in enumerate(unique_cases):
-            act = df[df[case_id] == case][event_name].to_list()
-            time = df[df[case_id] == case][event_time].str[:19].to_list()
-            time_passed = 0
-            latest_diff = datetime.timedelta()
-            recent_diff = datetime.timedelta()
-            for i in range(0, len(act)):
-                prefix = np.where(i == 0, act[0], " ".join(act[:i+1]))
-                if i > 0:
-                    latest_diff = datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S") - \
-                                        datetime.datetime.strptime(time[i-1], "%Y-%m-%d %H:%M:%S")
-                if i > 1:
-                    recent_diff = datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S")- \
-                                    datetime.datetime.strptime(time[i-2], "%Y-%m-%d %H:%M:%S")
+        processed_data = []
 
-                latest_time = np.where(i == 0, 0, latest_diff.days)
-                recent_time = np.where(i <=1, 0, recent_diff.days)
+        # Use groupby to avoid repeated filtering
+        for case, group in tqdm(df.groupby(case_id), desc="Processing remaining time", leave=False):
+            act = group[event_name].to_list()
+            time_str = group[event_time].str[:19].to_list()
+
+            # Pre-parse all timestamps once - huge performance gain!
+            time_dt = [datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S") for t in time_str]
+
+            time_passed = 0
+            last_time_dt = time_dt[-1]  # Cache the last timestamp
+
+            for i in range(0, len(act)):
+                prefix = act[0] if i == 0 else " ".join(act[:i+1])
+
+                if i > 0:
+                    latest_diff = time_dt[i] - time_dt[i-1]
+                    latest_time = latest_diff.days
+                else:
+                    latest_time = 0
+
+                if i > 1:
+                    recent_diff = time_dt[i] - time_dt[i-2]
+                    recent_time = recent_diff.days
+                else:
+                    recent_time = 0
+
                 time_passed = time_passed + latest_time
 
-                time_stamp = str(np.where(i == 0, time[0], time[i]))
-                ttc = datetime.datetime.strptime(time[-1], "%Y-%m-%d %H:%M:%S") - \
-                        datetime.datetime.strptime(time_stamp, "%Y-%m-%d %H:%M:%S")
-                ttc = str(ttc.days)  
+                # Calculate remaining time to case completion
+                ttc = last_time_dt - time_dt[i]
+                ttc = str(ttc.days)
 
-                processed_df.at[idx, "case_id"]  = case
-                processed_df.at[idx, "prefix"]  =  prefix
-                processed_df.at[idx, "k"] = i
-                processed_df.at[idx, "time_passed"] = time_passed
-                processed_df.at[idx, "recent_time"] = recent_time
-                processed_df.at[idx, "latest_time"] =  latest_time
-                processed_df.at[idx, "remaining_time_days"] = ttc
-                idx = idx + 1
-        processed_df_remaining_time = processed_df[["case_id", "prefix", "k", 
-            "time_passed", "recent_time", "latest_time","remaining_time_days"]]
-        return processed_df_remaining_time
+                processed_data.append({
+                    "case_id": case,
+                    "prefix": prefix,
+                    "k": i,
+                    "time_passed": time_passed,
+                    "recent_time": recent_time,
+                    "latest_time": latest_time,
+                    "remaining_time_days": ttc
+                })
+
+        return pd.DataFrame(processed_data)
 
     def _process_remaining_time(self, df, train_list, test_list):
-        df_split = np.array_split(df, self._pool)
-        with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._remaining_time_helper_func, df_split))
+        print("Processing remaining time data...")
+        processed_df = self._remaining_time_helper_func(df)
         train_remaining_time = processed_df[processed_df["case_id"].isin(train_list)]
         test_remaining_time = processed_df[processed_df["case_id"].isin(test_list)]
         train_remaining_time.to_csv(f"{self._dir_path}/{Task.REMAINING_TIME.value}_train.csv", index = False)
         test_remaining_time.to_csv(f"{self._dir_path}/{Task.REMAINING_TIME.value}_test.csv", index = False)
+        print(f"Saved {len(train_remaining_time)} training and {len(test_remaining_time)} test samples.")
 
     def process_logs(self, task, 
         sort_temporally = False, 
