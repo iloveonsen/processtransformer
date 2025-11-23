@@ -58,12 +58,12 @@ class LogsDataProcessor:
     def _next_activity_helper_func(self, df):
         case_id, case_name = "case:concept:name", "concept:name"
         processed_data = []
-        unique_cases = df[case_id].unique()
 
-        for _, case in enumerate(tqdm(unique_cases, desc="Processing next activity", leave=False)):
-            act = df[df[case_id] == case][case_name].to_list()
+        # Use groupby to avoid repeated filtering - much faster!
+        for case, group in tqdm(df.groupby(case_id), desc="Processing next activity", leave=False):
+            act = group[case_name].to_list()
             for i in range(len(act) - 1):
-                prefix = np.where(i == 0, act[0], " ".join(act[:i+1]))
+                prefix = act[0] if i == 0 else " ".join(act[:i+1])
                 next_act = act[i+1]
                 processed_data.append({
                     "case_id": case,
@@ -88,30 +88,36 @@ class LogsDataProcessor:
         event_name = "concept:name"
         event_time = "time:timestamp"
         processed_data = []
-        unique_cases = df[case_id].unique()
 
-        for _, case in enumerate(tqdm(unique_cases, desc="Processing next time", leave=False)):
-            act = df[df[case_id] == case][event_name].to_list()
-            time = df[df[case_id] == case][event_time].str[:19].to_list()
+        # Use groupby to avoid repeated filtering
+        for case, group in tqdm(df.groupby(case_id), desc="Processing next time", leave=False):
+            act = group[event_name].to_list()
+            time_str = group[event_time].str[:19].to_list()
+
+            # Pre-parse all timestamps once - huge performance gain!
+            time_dt = [datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S") for t in time_str]
+
             time_passed = 0
-            latest_diff = datetime.timedelta()
-            recent_diff = datetime.timedelta()
-            next_time = datetime.timedelta()
 
             for i in range(0, len(act)):
-                prefix = np.where(i == 0, act[0], " ".join(act[:i+1]))
+                prefix = act[0] if i == 0 else " ".join(act[:i+1])
+
                 if i > 0:
-                    latest_diff = datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S") - \
-                                  datetime.datetime.strptime(time[i-1], "%Y-%m-%d %H:%M:%S")
+                    latest_diff = time_dt[i] - time_dt[i-1]
+                    latest_time = latest_diff.days
+                else:
+                    latest_time = 0
+
                 if i > 1:
-                    recent_diff = datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S") - \
-                                  datetime.datetime.strptime(time[i-2], "%Y-%m-%d %H:%M:%S")
-                latest_time = np.where(i == 0, 0, latest_diff.days)
-                recent_time = np.where(i <= 1, 0, recent_diff.days)
+                    recent_diff = time_dt[i] - time_dt[i-2]
+                    recent_time = recent_diff.days
+                else:
+                    recent_time = 0
+
                 time_passed = time_passed + latest_time
-                if i+1 < len(time):
-                    next_time = datetime.datetime.strptime(time[i+1], "%Y-%m-%d %H:%M:%S") - \
-                                datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S")
+
+                if i+1 < len(time_dt):
+                    next_time = time_dt[i+1] - time_dt[i]
                     next_time_days = str(int(next_time.days))
                 else:
                     next_time_days = str(1)
@@ -142,31 +148,37 @@ class LogsDataProcessor:
         event_name = "concept:name"
         event_time = "time:timestamp"
         processed_data = []
-        unique_cases = df[case_id].unique()
 
-        for _, case in enumerate(tqdm(unique_cases, desc="Processing remaining time", leave=False)):
-            act = df[df[case_id] == case][event_name].to_list()
-            time = df[df[case_id] == case][event_time].str[:19].to_list()
+        # Use groupby to avoid repeated filtering
+        for case, group in tqdm(df.groupby(case_id), desc="Processing remaining time", leave=False):
+            act = group[event_name].to_list()
+            time_str = group[event_time].str[:19].to_list()
+
+            # Pre-parse all timestamps once - huge performance gain!
+            time_dt = [datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S") for t in time_str]
+
             time_passed = 0
-            latest_diff = datetime.timedelta()
-            recent_diff = datetime.timedelta()
+            last_time_dt = time_dt[-1]  # Cache the last timestamp
 
             for i in range(0, len(act)):
-                prefix = np.where(i == 0, act[0], " ".join(act[:i+1]))
-                if i > 0:
-                    latest_diff = datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S") - \
-                                  datetime.datetime.strptime(time[i-1], "%Y-%m-%d %H:%M:%S")
-                if i > 1:
-                    recent_diff = datetime.datetime.strptime(time[i], "%Y-%m-%d %H:%M:%S") - \
-                                  datetime.datetime.strptime(time[i-2], "%Y-%m-%d %H:%M:%S")
+                prefix = act[0] if i == 0 else " ".join(act[:i+1])
 
-                latest_time = np.where(i == 0, 0, latest_diff.days)
-                recent_time = np.where(i <= 1, 0, recent_diff.days)
+                if i > 0:
+                    latest_diff = time_dt[i] - time_dt[i-1]
+                    latest_time = latest_diff.days
+                else:
+                    latest_time = 0
+
+                if i > 1:
+                    recent_diff = time_dt[i] - time_dt[i-2]
+                    recent_time = recent_diff.days
+                else:
+                    recent_time = 0
+
                 time_passed = time_passed + latest_time
 
-                time_stamp = str(np.where(i == 0, time[0], time[i]))
-                ttc = datetime.datetime.strptime(time[-1], "%Y-%m-%d %H:%M:%S") - \
-                      datetime.datetime.strptime(time_stamp, "%Y-%m-%d %H:%M:%S")
+                # Calculate remaining time to case completion
+                ttc = last_time_dt - time_dt[i]
                 ttc = str(ttc.days)
 
                 processed_data.append({
