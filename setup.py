@@ -23,7 +23,9 @@ install_requires = [
     "torch>=1.9.0",
     "numpy",
     "scikit-learn",
-    "pandas"
+    "pandas",
+    "tqdm",
+    "pm4py>=2.7.0"  # For XES file conversion
 ]
 
 if __name__ == "__main__":
