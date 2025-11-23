@@ -58,15 +58,9 @@ class LogsDataLoader:
         if shuffle:
             x, y = utils.shuffle(x, y)
 
-        token_x = list()
-        for _x in x:
-            token_x.append([x_word_dict[s] for s in _x.split()])
-        # token_x = np.array(token_x, dtype = np.float32)
-
-        token_y = list()
-        for _y in y:
-            token_y.append(y_word_dict[_y])
-        # token_y = np.array(token_y, dtype = np.float32)
+        # Use list comprehension for faster tokenization
+        token_x = [[x_word_dict[s] for s in _x.split()] for _x in x]
+        token_y = [y_word_dict[_y] for _y in y]
 
         token_x = pad_sequences(
             token_x, maxlen=max_case_length)
@@ -88,9 +82,8 @@ class LogsDataLoader:
         if shuffle:
             x, time_x, y = utils.shuffle(x, time_x, y)
 
-        token_x = list()
-        for _x in x:
-            token_x.append([x_word_dict[s] for s in _x.split()])
+        # Use list comprehension for faster tokenization
+        token_x = [[x_word_dict[s] for s in _x.split()] for _x in x]
 
         if time_scaler is None:
             time_scaler = preprocessing.StandardScaler()
@@ -128,9 +121,8 @@ class LogsDataLoader:
         if shuffle:
             x, time_x, y = utils.shuffle(x, time_x, y)
 
-        token_x = list()
-        for _x in x:
-            token_x.append([x_word_dict[s] for s in _x.split()])
+        # Use list comprehension for faster tokenization
+        token_x = [[x_word_dict[s] for s in _x.split()] for _x in x]
 
         if time_scaler is None:
             time_scaler = preprocessing.StandardScaler()
@@ -158,10 +150,8 @@ class LogsDataLoader:
         return token_x, time_x, y, time_scaler, y_scaler
 
     def get_max_case_length(self, train_x):
-        train_token_x = list()
-        for _x in train_x:
-            train_token_x.append(len(_x.split()))
-        return max(train_token_x)
+        # Count spaces + 1 instead of creating split lists
+        return max(_x.count(' ') + 1 for _x in train_x)
 
     def load_data(self, task):
         if task not in (Task.NEXT_ACTIVITY,

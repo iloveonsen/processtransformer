@@ -30,13 +30,14 @@ class LogsDataProcessor:
     def _load_df(self, sort_temporally = False):
         df = pd.read_csv(self._filepath)
         df = df[self._org_columns]
-        df.columns = ["case:concept:name", 
+        df.columns = ["case:concept:name",
             "concept:name", "time:timestamp"]
         df["concept:name"] = df["concept:name"].str.lower()
         df["concept:name"] = df["concept:name"].str.replace(" ", "-")
         df["time:timestamp"] = df["time:timestamp"].str.replace("/", "-")
+        # Keep as datetime objects - no need to convert back to string
         df["time:timestamp"]= pd.to_datetime(df["time:timestamp"],
-            format="%Y-%m-%d %H:%M:%S").map(lambda x: x.strftime("%Y-%m-%d %H:%M:%S"))
+            format="%Y-%m-%d %H:%M:%S")
         if sort_temporally:
             df.sort_values(by = ["time:timestamp"], inplace = True)
         return df
@@ -62,8 +63,8 @@ class LogsDataProcessor:
         # Use groupby to avoid repeated filtering - much faster!
         for case, group in tqdm(df.groupby(case_id), desc="Processing next activity", leave=False):
             act = group[case_name].to_list()
+            prefix = act[0]  # Initialize with first activity
             for i in range(len(act) - 1):
-                prefix = act[0] if i == 0 else " ".join(act[:i+1])
                 next_act = act[i+1]
                 processed_data.append({
                     "case_id": case,
@@ -71,6 +72,8 @@ class LogsDataProcessor:
                     "k": i,
                     "next_act": next_act
                 })
+                # Incrementally build prefix for next iteration
+                prefix = prefix + " " + next_act
 
         return pd.DataFrame(processed_data)
 
@@ -92,16 +95,13 @@ class LogsDataProcessor:
         # Use groupby to avoid repeated filtering
         for case, group in tqdm(df.groupby(case_id), desc="Processing next time", leave=False):
             act = group[event_name].to_list()
-            time_str = group[event_time].str[:19].to_list()
-
-            # Pre-parse all timestamps once - huge performance gain!
-            time_dt = [datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S") for t in time_str]
+            # Timestamps are already datetime objects - no parsing needed!
+            time_dt = group[event_time].to_list()
 
             time_passed = 0
+            prefix = act[0]  # Initialize with first activity
 
             for i in range(0, len(act)):
-                prefix = act[0] if i == 0 else " ".join(act[:i+1])
-
                 if i > 0:
                     latest_diff = time_dt[i] - time_dt[i-1]
                     latest_time = latest_diff.days
@@ -132,6 +132,10 @@ class LogsDataProcessor:
                     "next_time": next_time_days
                 })
 
+                # Incrementally build prefix for next iteration
+                if i+1 < len(act):
+                    prefix = prefix + " " + act[i+1]
+
         return pd.DataFrame(processed_data)
 
     def _process_next_time(self, df, train_list, test_list):
@@ -152,17 +156,14 @@ class LogsDataProcessor:
         # Use groupby to avoid repeated filtering
         for case, group in tqdm(df.groupby(case_id), desc="Processing remaining time", leave=False):
             act = group[event_name].to_list()
-            time_str = group[event_time].str[:19].to_list()
-
-            # Pre-parse all timestamps once - huge performance gain!
-            time_dt = [datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S") for t in time_str]
+            # Timestamps are already datetime objects - no parsing needed!
+            time_dt = group[event_time].to_list()
 
             time_passed = 0
             last_time_dt = time_dt[-1]  # Cache the last timestamp
+            prefix = act[0]  # Initialize with first activity
 
             for i in range(0, len(act)):
-                prefix = act[0] if i == 0 else " ".join(act[:i+1])
-
                 if i > 0:
                     latest_diff = time_dt[i] - time_dt[i-1]
                     latest_time = latest_diff.days
@@ -190,6 +191,10 @@ class LogsDataProcessor:
                     "latest_time": latest_time,
                     "remaining_time_days": ttc
                 })
+
+                # Incrementally build prefix for next iteration
+                if i+1 < len(act):
+                    prefix = prefix + " " + act[i+1]
 
         return pd.DataFrame(processed_data)
 
