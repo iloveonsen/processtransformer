@@ -159,8 +159,10 @@ def aggregate_attention_scores_batch(attn_weights, token_ids):
         # Step 2: Sum across source positions to get total attention received
         token_scores = attn_summed.sum(dim=0)  # [seq_len]
 
-        # Step 3: Softmax normalization
-        token_scores = F.softmax(token_scores, dim=0)
+        # Step 3: Normalize (divide by sum, not softmax)
+        # Note: Attention weights are already softmax-normalized in the transformer.
+        # Applying softmax again would exponentially amplify small differences.
+        token_scores = token_scores / token_scores.sum()
 
         # Map token IDs to scores
         token_ids_np = token_ids[b].cpu().numpy()
