@@ -155,18 +155,19 @@ def aggregate_attention_scores_batch(attn_weights, token_ids):
         token_ids_np = token_ids[b].cpu().numpy()
         token_scores_np = token_scores.cpu().numpy()
 
-        # Aggregate scores for duplicate tokens
+        # Aggregate scores for duplicate tokens (excluding [PAD] and [UNK])
         score_dict = {}
         for token_id, score in zip(token_ids_np, token_scores_np):
             token_id = int(token_id)
-            if token_id == 0:  # Skip padding tokens
+            # Skip special tokens: [PAD]=0, [UNK]=1
+            if token_id == 0 or token_id == 1:
                 continue
             if token_id in score_dict:
                 score_dict[token_id] += score
             else:
                 score_dict[token_id] = score
 
-        # Renormalize after aggregation
+        # Renormalize after excluding special tokens
         total_score = sum(score_dict.values())
         if total_score > 0:
             score_dict = {k: v / total_score for k, v in score_dict.items()}
