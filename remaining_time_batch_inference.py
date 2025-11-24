@@ -52,32 +52,39 @@ def preprocess_multiple_traces(input_csv_path, output_csv_path, columns):
 
     print(f"Found {len(case_ids)} unique cases in the input file")
 
-    # Process each case
+    # Process each case using groupby (much faster than repeated filtering)
     all_processed_data = []
 
-    for case_id in case_ids:
-        case_df = df[df["case:concept:name"] == case_id].reset_index(drop=True)
+    for case_id, case_df in tqdm(df.groupby("case:concept:name", sort=False),
+                                  desc="Preprocessing cases",
+                                  total=len(case_ids)):
+        case_df = case_df.reset_index(drop=True)
 
-        # Calculate time features
-        case_df["time_diff"] = case_df["time:timestamp"].diff().dt.total_seconds() / 86400  # in days
-        case_df["time_diff"] = case_df["time_diff"].fillna(0)
-        case_df["time_cumsum"] = case_df["time_diff"].cumsum()
-
-        # Create prefix sequences for this case
+        # Extract activities and timestamps as lists
         activities = case_df["concept:name"].tolist()
         timestamps = case_df["time:timestamp"].tolist()
 
-        for i in range(len(case_df)):
-            prefix = " ".join(activities[:i+1])
+        # Calculate time differences
+        time_diffs = [0.0]  # First event has 0 time diff
+        for i in range(1, len(timestamps)):
+            time_diffs.append((timestamps[i] - timestamps[i-1]).total_seconds() / 86400)
 
+        # Cumulative sum
+        time_cumsum = 0
+        prefix = activities[0]  # Initialize with first activity
+
+        for i in range(len(case_df)):
             if i == 0:
                 recent_time = 0
                 latest_time = 0
+            elif i == 1:
+                recent_time = time_diffs[i]
+                latest_time = time_diffs[i]
             else:
-                recent_time = (timestamps[i] - timestamps[i-1]).total_seconds() / 86400
+                recent_time = time_diffs[i]
                 latest_time = (timestamps[i] - timestamps[0]).total_seconds() / 86400
 
-            time_passed = case_df.loc[i, "time_cumsum"]
+            time_cumsum += time_diffs[i]
 
             all_processed_data.append({
                 "case_id": case_id,
@@ -85,8 +92,12 @@ def preprocess_multiple_traces(input_csv_path, output_csv_path, columns):
                 "k": i + 1,
                 "recent_time": recent_time,
                 "latest_time": latest_time,
-                "time_passed": time_passed,
+                "time_passed": time_cumsum,
             })
+
+            # Incrementally build prefix for next iteration
+            if i + 1 < len(activities):
+                prefix = prefix + " " + activities[i + 1]
 
     # Save processed data
     processed_df = pd.DataFrame(all_processed_data)
@@ -268,13 +279,15 @@ def run_batch_inference(args):
     print("Step 3: Preparing data for batch inference")
     print("=" * 70)
 
-    # Get the last (longest) prefix for each case
+    # Get the last (longest) prefix for each case (using groupby for efficiency)
     last_prefixes = []
     batch_case_ids = []
 
-    for case_id in case_ids:
-        case_data = processed_df[processed_df["case_id"] == case_id]
-        last_row = case_data.iloc[-1]
+    # Group by case_id and get last row of each group
+    for case_id, group in tqdm(processed_df.groupby("case_id", sort=False),
+                                desc="Preparing cases",
+                                total=len(case_ids)):
+        last_row = group.iloc[-1]
 
         prefix = last_row["prefix"]
         time_features = np.array([
@@ -367,7 +380,7 @@ def run_batch_inference(args):
     all_activities = list(y_word_dict.keys())
     case_activity_scores = {}
 
-    for case_id in case_ids:
+    for case_id in tqdm(case_ids, desc="Computing activity scores"):
         # Initialize all activities with 0
         activity_scores = {activity: 0.0 for activity in all_activities}
 
