@@ -28,7 +28,14 @@ def visualize_attention_scores(activity_scores, case_id, output_path):
 
     # Create bar chart with color mapping (darker = higher score)
     colors = plt.cm.Blues(np.array(scores) / max(scores) if max(scores) > 0 else np.zeros(len(scores)))
-    plt.bar(range(len(activities)), scores, color=colors)
+    bars = plt.bar(range(len(activities)), scores, color=colors)
+
+    # Add value labels on top of each bar
+    for i, (bar, score) in enumerate(zip(bars, scores)):
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2., height,
+                f'{score:.4f}',
+                ha='center', va='bottom', fontsize=8)
 
     # Customize plot
     plt.xlabel('Activity', fontsize=12, fontweight='bold')
