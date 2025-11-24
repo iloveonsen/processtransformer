@@ -32,6 +32,19 @@ class LogsDataProcessor:
         df = df[self._org_columns]
         df.columns = ["case:concept:name",
             "concept:name", "time:timestamp"]
+
+        # Create mapping from normalized to original activity names
+        # (before applying normalization to the dataframe)
+        original_activities = df["concept:name"].unique()
+        activity_name_mapping = {}
+        for orig in original_activities:
+            normalized = orig.lower().replace(" ", "-")
+            activity_name_mapping[normalized] = orig
+
+        # Store mapping for later use in metadata extraction
+        self._activity_name_mapping = activity_name_mapping
+
+        # Apply normalization
         df["concept:name"] = df["concept:name"].str.lower()
         df["concept:name"] = df["concept:name"].str.replace(" ", "-")
         df["time:timestamp"] = df["time:timestamp"].str.replace("/", "-")
@@ -55,6 +68,13 @@ class LogsDataProcessor:
         coded_json = json.dumps(coded_activity)
         with open(f"{self._dir_path}/metadata.json", "w") as metadata_file:
             metadata_file.write(coded_json)
+
+        # Save activity name mapping (normalized -> original)
+        if hasattr(self, '_activity_name_mapping'):
+            mapping_json = json.dumps(self._activity_name_mapping, indent=2, ensure_ascii=False)
+            with open(f"{self._dir_path}/activity_name_mapping.json", "w", encoding='utf-8') as mapping_file:
+                mapping_file.write(mapping_json)
+            print(f"Activity name mapping saved to: {self._dir_path}/activity_name_mapping.json")
 
     def _next_activity_helper_func(self, df):
         case_id, case_name = "case:concept:name", "concept:name"
